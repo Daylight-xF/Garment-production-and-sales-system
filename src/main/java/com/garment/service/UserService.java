@@ -9,7 +9,7 @@ import org.springframework.data.domain.Pageable;
 
 public interface UserService {
 
-    Page<UserVO> getUserList(String keyword, Pageable pageable);
+    Page<UserVO> getUserList(String keyword, String role, Integer status, Pageable pageable);
 
     UserVO getUserById(String id);
 

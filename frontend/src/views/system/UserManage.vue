@@ -131,6 +131,20 @@
             show-password
           />
         </el-form-item>
+        <el-form-item v-if="dialogType === 'edit'" label="新密码" prop="newPassword">
+          <el-input
+            v-model="userForm.newPassword"
+            :type="showNewPassword ? 'text' : 'password'"
+            placeholder="留空则不修改密码"
+            :suffix-icon="showNewPassword ? View : Hide"
+            @click:icon="showNewPassword = !showNewPassword"
+          >
+            <template #prefix>
+              <el-icon><Lock /></el-icon>
+            </template>
+          </el-input>
+          <div class="password-hint">如需修改密码请填写，留空保持原密码不变</div>
+        </el-form-item>
         <el-form-item label="手机号" prop="phone">
           <el-input v-model="userForm.phone" placeholder="请输入手机号" />
         </el-form-item>
@@ -171,6 +185,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Lock, View, Hide, Plus } from '@element-plus/icons-vue'
 import {
   getUserList,
   createUser,
@@ -191,6 +206,7 @@ const dialogType = ref('add')
 const currentUserId = ref(null)
 const selectedRoleId = ref('')
 const userFormRef = ref(null)
+const showNewPassword = ref(false)
 
 const roleNameMap = {
   admin: '系统管理员',
@@ -216,14 +232,28 @@ const userForm = reactive({
   username: '',
   realName: '',
   password: '',
+  newPassword: '',
   phone: '',
   email: ''
 })
+
+const validateNewPassword = (rule, value, callback) => {
+  if (value && value.length > 0) {
+    if (value.length < 6 || value.length > 20) {
+      callback(new Error('密码长度在6到20个字符'))
+    } else {
+      callback()
+    }
+  } else {
+    callback()
+  }
+}
 
 const userFormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   realName: [{ required: true, message: '请输入真实姓名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  newPassword: [{ validator: validateNewPassword, trigger: 'blur' }],
   phone: [
     { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号', trigger: 'blur' }
   ],
@@ -299,10 +329,12 @@ function handleReset() {
 
 function handleAdd() {
   dialogType.value = 'add'
+  showNewPassword.value = false
   Object.assign(userForm, {
     username: '',
     realName: '',
     password: '',
+    newPassword: '',
     phone: '',
     email: ''
   })
@@ -312,10 +344,12 @@ function handleAdd() {
 function handleEdit(row) {
   dialogType.value = 'edit'
   currentUserId.value = row.id
+  showNewPassword.value = false
   Object.assign(userForm, {
     username: row.username,
     realName: row.realName,
     password: '',
+    newPassword: '',
     phone: row.phone,
     email: row.email
   })
@@ -333,7 +367,10 @@ async function handleSubmit() {
         await createUser(userForm)
         ElMessage.success('新增用户成功')
       } else {
-        const { password, ...updateData } = userForm
+        const { password, newPassword, ...updateData } = userForm
+        if (newPassword && newPassword.length > 0) {
+          updateData.password = newPassword
+        }
         await updateUser(currentUserId.value, updateData)
         ElMessage.success('编辑用户成功')
       }
@@ -433,5 +470,12 @@ async function handleDelete(row) {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.password-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 </style>

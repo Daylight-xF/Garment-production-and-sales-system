@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,28 +38,41 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public Page<UserVO> getUserList(String keyword, Pageable pageable) {
-        Page<User> userPage;
-        if (StringUtils.hasText(keyword)) {
-            List<User> allUsers = userRepository.findAll();
-            List<User> filtered = allUsers.stream()
-                    .filter(u -> (u.getUsername() != null && u.getUsername().contains(keyword))
-                            || (u.getRealName() != null && u.getRealName().contains(keyword))
-                            || (u.getPhone() != null && u.getPhone().contains(keyword)))
-                    .collect(Collectors.toList());
-            int start = (int) pageable.getOffset();
-            int end = Math.min(start + pageable.getPageSize(), filtered.size());
-            List<User> pageContent = start < filtered.size() ? filtered.subList(start, end) : new ArrayList<>();
-            userPage = new PageImpl<>(pageContent, pageable, filtered.size());
-        } else {
-            userPage = userRepository.findAll(pageable);
-        }
+    public Page<UserVO> getUserList(String keyword, String role, Integer status, Pageable pageable) {
+        List<User> allUsers = userRepository.findAll();
+        List<User> filtered = allUsers.stream().filter(user -> {
+            if (StringUtils.hasText(keyword)) {
+                boolean matchKeyword = (user.getUsername() != null && user.getUsername().contains(keyword))
+                        || (user.getRealName() != null && user.getRealName().contains(keyword))
+                        || (user.getPhone() != null && user.getPhone().contains(keyword));
+                if (!matchKeyword) return false;
+            }
+            if (StringUtils.hasText(role)) {
+                boolean[] hasRole = {false};
+                if (user.getRoles() != null) {
+                    for (String roleId : user.getRoles()) {
+                        roleRepository.findById(roleId).ifPresent(r -> {
+                            if (r.getCode().equals(role)) hasRole[0] = true;
+                        });
+                    }
+                }
+                if (!hasRole[0]) return false;
+            }
+            if (status != null) {
+                if (!status.equals(user.getStatus())) return false;
+            }
+            return true;
+        }).collect(Collectors.toList());
 
-        List<UserVO> voList = userPage.getContent().stream()
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        List<User> pageContent = start < filtered.size() ? filtered.subList(start, end) : new ArrayList<>();
+
+        List<UserVO> voList = pageContent.stream()
                 .map(this::convertToVO)
                 .collect(Collectors.toList());
 
-        return new PageImpl<>(voList, pageable, userPage.getTotalElements());
+        return new PageImpl<>(voList, pageable, filtered.size());
     }
 
     @Override
@@ -74,13 +88,20 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("用户名已存在");
         }
 
+        List<String> roleIds = request.getRoles();
+        if (roleIds == null || roleIds.isEmpty()) {
+            Role inactiveRole = roleRepository.findByCode("inactive")
+                    .orElseThrow(() -> new BusinessException("默认角色不存在，请联系管理员"));
+            roleIds = Collections.singletonList(inactiveRole.getId());
+        }
+
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRealName(request.getRealName());
         user.setPhone(request.getPhone());
         user.setEmail(request.getEmail());
-        user.setRoles(request.getRoles());
+        user.setRoles(roleIds);
         user.setStatus(1);
 
         User saved = userRepository.save(user);
@@ -103,6 +124,9 @@ public class UserServiceImpl implements UserService {
         }
         if (request.getRoles() != null) {
             user.setRoles(request.getRoles());
+        }
+        if (StringUtils.hasText(request.getPassword())) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
 
         User saved = userRepository.save(user);

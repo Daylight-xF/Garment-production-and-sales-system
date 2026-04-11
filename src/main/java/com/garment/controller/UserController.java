@@ -32,10 +32,12 @@ public class UserController {
     @PreAuthorize("hasAuthority('USER_READ')")
     public Result<Map<String, Object>> getUserList(
             @RequestParam(defaultValue = "") String keyword,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) Integer status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<UserVO> userPage = userService.getUserList(keyword, pageable);
+        Page<UserVO> userPage = userService.getUserList(keyword, role, status, pageable);
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", userPage.getContent());
