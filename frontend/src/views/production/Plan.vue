@@ -41,8 +41,16 @@
         <el-table-column prop="productName" label="产品名称" min-width="100" />
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
-        <el-table-column prop="startDate" label="开始日期" width="110" />
-        <el-table-column prop="endDate" label="结束日期" width="110" />
+        <el-table-column prop="startDate" label="开始日期" width="110">
+          <template #default="{ row }">
+            {{ row.startDate ? row.startDate.substring(0, 10) : '' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="endDate" label="结束日期" width="110">
+          <template #default="{ row }">
+            {{ row.endDate ? row.endDate.substring(0, 10) : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)" size="small">
@@ -108,6 +116,7 @@
             type="date"
             placeholder="选择开始日期"
             value-format="YYYY-MM-DD"
+            :disabled-date="disabledStartDate"
             style="width: 100%"
           />
         </el-form-item>
@@ -117,6 +126,7 @@
             type="date"
             placeholder="选择结束日期"
             value-format="YYYY-MM-DD"
+            :disabled-date="disabledEndDate"
             style="width: 100%"
           />
         </el-form-item>
@@ -361,6 +371,19 @@ function statusText(status) {
     CANCELLED: '已取消'
   }
   return map[status] || status
+}
+
+function disabledStartDate(time) {
+  return time.getTime() < Date.now() - 86400000
+}
+
+function disabledEndDate(time) {
+  if (planForm.startDate) {
+    const startDate = new Date(planForm.startDate)
+    startDate.setHours(0, 0, 0, 0)
+    return time.getTime() < startDate.getTime()
+  }
+  return time.getTime() < Date.now() - 86400000
 }
 </script>
 
