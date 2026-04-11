@@ -1,0 +1,103 @@
+main.ts:17 [Vue Router warn]: Detected a possibly infinite redirection in a navigation guard when going from "/" to "/dashboard". Aborting to avoid a Stack Overflow.
+ Are you always returning a new location within a navigation guard? That would lead to this error. Only return when redirecting or aborting, that should fix this. This might break in production if not fixed.
+warn$1 @ vue-router.js?v=46c7eb53:3776
+（匿名） @ vue-router.js?v=46c7eb53:6056
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+（匿名） @ vue-router.js?v=46c7eb53:6059
+Promise.then
+pushWithRedirect @ vue-router.js?v=46c7eb53:6052
+pushWithRedirect @ vue-router.js?v=46c7eb53:6037
+push @ vue-router.js?v=46c7eb53:6005
+install @ vue-router.js?v=46c7eb53:6252
+use @ vue.runtime.esm-bundler-v-a3Yrua.js?v=46c7eb53:4465
+（匿名） @ main.ts:17
+main.ts:17 [Vue Router warn]: Unexpected error when starting the router: Error: Infinite redirect in navigation guard
+    at vue-router.js?v=46c7eb53:6057:45
