@@ -126,9 +126,10 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
         for (ProductionTask task : tasks) {
             task.setPlanQuantity(newPlanQuantity);
-            if (task.getProgress() != null && task.getProgress() > 0) {
-                int newCompleted = (int) Math.round(newPlanQuantity * task.getProgress() / 100.0);
-                task.setCompletedQuantity(newCompleted);
+            if (task.getPlanQuantity() != null && task.getPlanQuantity() > 0
+                    && task.getCompletedQuantity() != null) {
+                int newProgress = (int) Math.round(task.getCompletedQuantity() * 100.0 / task.getPlanQuantity());
+                task.setProgress(Math.min(newProgress, 100));
             }
             productionTaskRepository.save(task);
         }
@@ -395,8 +396,6 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         task.setStatus("PENDING");
         task.setPlanQuantity(plan.getQuantity());
         task.setCompletedQuantity(0);
-        task.setStartDate(new Date());
-        task.setEndDate(plan.getEndDate());
         task.setDescription("自动从生产计划【" + plan.getPlanName() + "】生成");
         task.setCreateBy(userId);
 

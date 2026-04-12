@@ -41,12 +41,12 @@
         <el-table-column prop="productName" label="产品名称" min-width="100" />
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
-        <el-table-column prop="startDate" label="开始日期" width="110">
+        <el-table-column prop="startDate" label="计划开始日期" width="110">
           <template #default="{ row }">
             {{ row.startDate ? row.startDate.substring(0, 10) : '' }}
           </template>
         </el-table-column>
-        <el-table-column prop="endDate" label="结束日期" width="110">
+        <el-table-column prop="endDate" label="计划结束日期" width="110">
           <template #default="{ row }">
             {{ row.endDate ? row.endDate.substring(0, 10) : '' }}
           </template>
@@ -60,7 +60,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.status !== 'COMPLETED'" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="row.status !== 'COMPLETED' && !canCompletePlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status === 'PENDING'"
               type="success"
