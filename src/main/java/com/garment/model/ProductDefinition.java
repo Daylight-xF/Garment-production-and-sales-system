@@ -9,41 +9,43 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Document(collection = "production_plans")
-public class ProductionPlan {
+@Document(collection = "product_definitions")
+public class ProductDefinition {
 
     @Id
     private String id;
 
-    private String planName;
-
-    private String productDefinitionId;
+    private String productCode;
 
     private String productName;
 
-    private Integer quantity;
-
-    private Integer completedQuantity = 0;
-
-    private String unit;
-
-    private Date startDate;
-
-    private Date endDate;
+    private String category;
 
     private String status;
 
     private String description;
 
-    private String createBy;
+    private List<ProductMaterial> materials;
 
     @CreatedDate
     private Date createTime;
 
     @LastModifiedDate
     private Date updateTime;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProductMaterial {
+        private String materialId;
+        private String materialName;
+        private String materialCategory;
+        private Double quantity;
+        private String unit;
+    }
 }

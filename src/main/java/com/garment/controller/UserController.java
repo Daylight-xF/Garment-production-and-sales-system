@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -46,6 +47,12 @@ public class UserController {
         result.put("size", size);
 
         return Result.success(result);
+    }
+
+    @GetMapping("/assignable")
+    public Result<List<UserVO>> getAssignableUsers() {
+        List<UserVO> users = userService.getAssignableUsers();
+        return Result.success(users);
     }
 
     @GetMapping("/info")

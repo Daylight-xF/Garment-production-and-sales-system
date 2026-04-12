@@ -101,14 +101,45 @@
         <el-form-item label="计划名称" prop="planName">
           <el-input v-model="planForm.planName" placeholder="请输入计划名称" />
         </el-form-item>
-        <el-form-item label="产品名称" prop="productName">
-          <el-input v-model="planForm.productName" placeholder="请输入产品名称" />
+        <el-form-item label="选择产品" prop="productDefinitionId">
+          <el-select
+            v-model="planForm.productDefinitionId"
+            filterable
+            placeholder="请选择产品定义"
+            style="width: 100%"
+            @change="handleProductChange"
+          >
+            <el-option
+              v-for="item in productDefinitionList"
+              :key="item.id"
+              :label="`${item.productCode} - ${item.productName}`"
+              :value="item.id"
+            />
+          </el-select>
         </el-form-item>
+
+        <el-card v-if="planForm.productDefinitionId" class="product-info-card" shadow="never">
+          <template #header>
+            <span class="info-title">产品信息（自动填充）</span>
+          </template>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="产品编号">
+              {{ getCurrentProduct()?.productCode || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="产品名称">
+              {{ planForm.productName || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="产品分类">
+              {{ getCurrentProduct()?.category || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="单位">
+              {{ planForm.unit || '件' }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
         <el-form-item label="计划数量" prop="quantity">
           <el-input-number v-model="planForm.quantity" :min="1" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="单位" prop="unit">
-          <el-input v-model="planForm.unit" placeholder="请输入单位（如：件、套）" />
         </el-form-item>
         <el-form-item label="开始日期" prop="startDate">
           <el-date-picker
@@ -182,6 +213,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan } from '../../api/production'
+import { getProductDefinitionList } from '../../api/productDefinition'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -191,6 +223,7 @@ const approveDialogVisible = ref(false)
 const dialogType = ref('add')
 const currentPlan = ref({})
 const planFormRef = ref(null)
+const productDefinitionList = ref([])
 
 const searchForm = reactive({
   keyword: '',
@@ -205,9 +238,10 @@ const pagination = reactive({
 
 const planForm = reactive({
   planName: '',
+  productDefinitionId: '',
   productName: '',
   quantity: 1,
-  unit: '',
+  unit: '件',
   startDate: '',
   endDate: '',
   description: ''
@@ -220,12 +254,13 @@ const approveForm = reactive({
 
 const planFormRules = {
   planName: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
-  productName: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
+  productDefinitionId: [{ required: true, message: '请选择产品定义', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入计划数量', trigger: 'blur' }]
 }
 
 onMounted(() => {
   fetchPlanList()
+  fetchProductDefinitions()
 })
 
 async function fetchPlanList() {
@@ -260,13 +295,37 @@ function handleReset() {
   fetchPlanList()
 }
 
+async function fetchProductDefinitions() {
+  try {
+    const res = await getProductDefinitionList({ size: 1000 })
+    const data = res.data || res
+    productDefinitionList.value = data.list || []
+  } catch (error) {
+    console.error('获取产品定义列表失败', error)
+  }
+}
+
+function handleProductChange(productId) {
+  const product = productDefinitionList.value.find(p => p.id === productId)
+  if (product) {
+    planForm.productName = product.productName
+    planForm.unit = '件'
+  }
+}
+
+function getCurrentProduct() {
+  if (!planForm.productDefinitionId) return null
+  return productDefinitionList.value.find(p => p.id === planForm.productDefinitionId)
+}
+
 function handleAdd() {
   dialogType.value = 'add'
   Object.assign(planForm, {
     planName: '',
+    productDefinitionId: '',
     productName: '',
     quantity: 1,
-    unit: '',
+    unit: '件',
     startDate: '',
     endDate: '',
     description: ''
@@ -279,9 +338,10 @@ function handleEdit(row) {
   currentPlan.value = row
   Object.assign(planForm, {
     planName: row.planName,
-    productName: row.productName,
+    productDefinitionId: row.productDefinitionId || '',
+    productName: row.productName || '',
     quantity: row.quantity,
-    unit: row.unit,
+    unit: row.unit || '件',
     startDate: row.startDate ? row.startDate.substring(0, 10) : '',
     endDate: row.endDate ? row.endDate.substring(0, 10) : '',
     description: row.description || ''
@@ -306,7 +366,7 @@ async function handleSubmit() {
       dialogVisible.value = false
       fetchPlanList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(error.message || '操作失败')
     } finally {
       submitLoading.value = false
     }
@@ -328,7 +388,7 @@ async function handleApproveSubmit() {
     approveDialogVisible.value = false
     fetchPlanList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '审批失败')
+    ElMessage.error(error.message || '审批失败')
   } finally {
     submitLoading.value = false
   }
@@ -346,7 +406,7 @@ async function handleDelete(row) {
     fetchPlanList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(error.message || '删除失败')
     }
   }
 }
@@ -412,5 +472,15 @@ function disabledEndDate(time) {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.product-info-card {
+  margin-bottom: 16px;
+  background-color: #f5f7fa;
+}
+
+.info-title {
+  font-weight: 600;
+  color: #409eff;
 }
 </style>

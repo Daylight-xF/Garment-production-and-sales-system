@@ -76,6 +76,15 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public List<UserVO> getAssignableUsers() {
+        List<User> allUsers = userRepository.findAll();
+        return allUsers.stream()
+                .filter(user -> user.getStatus() != null && user.getStatus() == 1)
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public UserVO getUserById(String id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));

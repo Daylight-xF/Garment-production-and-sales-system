@@ -6,7 +6,7 @@
     </div>
 
     <el-row :gutter="20" class="stat-row">
-      <el-col :span="6">
+      <el-col :span="6" v-if="canViewSales">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background-color: #409eff">
             <el-icon :size="28"><Document /></el-icon>
@@ -17,7 +17,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" v-if="canViewProduction">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background-color: #67c23a">
             <el-icon :size="28"><Goods /></el-icon>
@@ -28,7 +28,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" v-if="canViewInventory">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background-color: #e6a23c">
             <el-icon :size="28"><Box /></el-icon>
@@ -39,7 +39,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" v-if="canViewSales">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background-color: #f56c6c">
             <el-icon :size="28"><TrendCharts /></el-icon>
@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '../store/user'
 import { getProductionOverview, getSalesOverview, getInventoryOverview } from '../api/statistics'
 
@@ -66,6 +66,10 @@ const productionData = ref({})
 const salesData = ref({})
 const inventoryData = ref({})
 
+const canViewProduction = computed(() => userStore.hasPermission('STATS_PRODUCTION'))
+const canViewSales = computed(() => userStore.hasPermission('STATS_SALES'))
+const canViewInventory = computed(() => userStore.hasPermission('STATS_INVENTORY'))
+
 function formatNumber(num) {
   if (!num && num !== 0) return '0'
   return Number(num).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -74,20 +78,31 @@ function formatNumber(num) {
 async function loadDashboardData() {
   loading.value = true
   try {
-    const [prodRes, salesRes, invRes] = await Promise.allSettled([
-      getProductionOverview(),
-      getSalesOverview(),
-      getInventoryOverview()
-    ])
+    const requests = []
+    
+    if (canViewProduction.value) {
+      requests.push(getProductionOverview().then(res => ({ type: 'production', res })))
+    }
+    if (canViewSales.value) {
+      requests.push(getSalesOverview().then(res => ({ type: 'sales', res })))
+    }
+    if (canViewInventory.value) {
+      requests.push(getInventoryOverview().then(res => ({ type: 'inventory', res })))
+    }
 
-    if (prodRes.status === 'fulfilled' && prodRes.value?.code === 200) {
-      productionData.value = prodRes.value.data || {}
-    }
-    if (salesRes.status === 'fulfilled' && salesRes.value?.code === 200) {
-      salesData.value = salesRes.value.data || {}
-    }
-    if (invRes.status === 'fulfilled' && invRes.value?.code === 200) {
-      inventoryData.value = invRes.value.data || {}
+    if (requests.length > 0) {
+      const results = await Promise.allSettled(requests)
+      
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          const { type, res } = result.value
+          if (res?.code === 200 && res.data) {
+            if (type === 'production') productionData.value = res.data
+            else if (type === 'sales') salesData.value = res.data
+            else if (type === 'inventory') inventoryData.value = res.data
+          }
+        }
+      })
     }
   } catch (error) {
     console.error('加载仪表盘数据失败:', error)

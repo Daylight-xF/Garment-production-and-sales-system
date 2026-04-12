@@ -67,7 +67,7 @@ const routes = [
         path: 'order/list',
         name: 'OrderList',
         component: () => import('../views/order/List.vue'),
-        meta: { title: '订单列表', roles: ['admin', 'warehouse_staff', 'sales_staff'] }
+        meta: { title: '订单列表', roles: ['admin', 'sales_staff'] }
       },
       {
         path: 'order/create',
@@ -79,7 +79,7 @@ const routes = [
         path: 'order/detail/:id',
         name: 'OrderDetail',
         component: () => import('../views/order/Detail.vue'),
-        meta: { title: '订单详情', roles: ['admin', 'warehouse_staff', 'sales_staff'] }
+        meta: { title: '订单详情', roles: ['admin', 'sales_staff'] }
       },
       {
         path: 'sales/record',
@@ -110,6 +110,12 @@ const routes = [
         name: 'UserManage',
         component: () => import('../views/system/UserManage.vue'),
         meta: { title: '用户管理', roles: ['admin'] }
+      },
+      {
+        path: 'system/product-definition',
+        name: 'ProductDefinition',
+        component: () => import('../views/system/ProductDefinition.vue'),
+        meta: { title: '产品定义', roles: ['admin'] }
       }
     ]
   },

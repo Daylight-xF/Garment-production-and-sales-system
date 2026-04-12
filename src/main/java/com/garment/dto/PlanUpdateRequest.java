@@ -9,6 +9,8 @@ public class PlanUpdateRequest {
 
     private String planName;
 
+    private String productDefinitionId;
+
     private String productName;
 
     private Integer quantity;

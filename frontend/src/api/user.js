@@ -24,6 +24,13 @@ export function getUserList(params) {
   })
 }
 
+export function getAssignableUsers() {
+  return request({
+    url: '/users/assignable',
+    method: 'get'
+  })
+}
+
 export function getUserDetail(id) {
   return request({
     url: `/users/${id}`,

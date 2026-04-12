@@ -12,8 +12,8 @@ public class PlanCreateRequest {
     @NotBlank(message = "计划名称不能为空")
     private String planName;
 
-    @NotBlank(message = "产品名称不能为空")
-    private String productName;
+    @NotBlank(message = "请选择产品定义")
+    private String productDefinitionId;
 
     @NotNull(message = "计划数量不能为空")
     private Integer quantity;

@@ -4,8 +4,10 @@ import com.garment.dto.PlanCreateRequest;
 import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.PlanVO;
 import com.garment.exception.BusinessException;
+import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
 import com.garment.model.User;
+import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.ProductionPlanService;
@@ -24,21 +26,28 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
     private final ProductionPlanRepository productionPlanRepository;
     private final UserRepository userRepository;
+    private final ProductDefinitionRepository productDefinitionRepository;
 
     public ProductionPlanServiceImpl(ProductionPlanRepository productionPlanRepository,
-                                      UserRepository userRepository) {
+                                      UserRepository userRepository,
+                                      ProductDefinitionRepository productDefinitionRepository) {
         this.productionPlanRepository = productionPlanRepository;
         this.userRepository = userRepository;
+        this.productDefinitionRepository = productDefinitionRepository;
     }
 
     @Override
     public PlanVO createPlan(PlanCreateRequest request, String userId) {
+        ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
+                .orElseThrow(() -> new BusinessException("产品定义不存在"));
+
         ProductionPlan plan = new ProductionPlan();
         plan.setPlanName(request.getPlanName());
-        plan.setProductName(request.getProductName());
+        plan.setProductDefinitionId(productDef.getId());
+        plan.setProductName(productDef.getProductName());
         plan.setQuantity(request.getQuantity());
         plan.setCompletedQuantity(0);
-        plan.setUnit(request.getUnit());
+        plan.setUnit(request.getUnit() != null ? request.getUnit() : "件");
         plan.setStartDate(request.getStartDate());
         plan.setEndDate(request.getEndDate());
         plan.setStatus("PENDING");
@@ -101,6 +110,12 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         if (request.getPlanName() != null) {
             plan.setPlanName(request.getPlanName());
         }
+        if (request.getProductDefinitionId() != null) {
+            ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
+                    .orElseThrow(() -> new BusinessException("产品定义不存在"));
+            plan.setProductDefinitionId(productDef.getId());
+            plan.setProductName(productDef.getProductName());
+        }
         if (request.getProductName() != null) {
             plan.setProductName(request.getProductName());
         }
@@ -161,6 +176,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return PlanVO.builder()
                 .id(plan.getId())
                 .planName(plan.getPlanName())
+                .productDefinitionId(plan.getProductDefinitionId())
                 .productName(plan.getProductName())
                 .quantity(plan.getQuantity())
                 .completedQuantity(plan.getCompletedQuantity())

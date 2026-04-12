@@ -132,7 +132,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getTaskList, assignTask, updateTaskProgress } from '../../api/production'
-import { getUserList } from '../../api/user'
+import { getAssignableUsers } from '../../api/user'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -188,9 +188,9 @@ async function fetchTaskList() {
 
 async function fetchUserList() {
   try {
-    const res = await getUserList({ page: 1, size: 100 })
+    const res = await getAssignableUsers()
     const data = res.data || res
-    userList.value = data.list || []
+    userList.value = data || []
   } catch (error) {
     console.error('获取用户列表失败')
   }

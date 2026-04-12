@@ -87,6 +87,7 @@
             <span>系统管理</span>
           </template>
           <el-menu-item index="/system/user">用户管理</el-menu-item>
+          <el-menu-item index="/system/product-definition">产品定义</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
@@ -147,7 +148,7 @@ const currentRoute = computed(() => route)
 const menuRoleMap = {
   production: ['admin', 'production_manager'],
   inventory: ['admin', 'warehouse_staff'],
-  order: ['admin', 'warehouse_staff', 'sales_staff'],
+  order: ['admin', 'sales_staff'],
   sales: ['admin', 'sales_staff'],
   statistics: ['admin', 'production_manager'],
   system: ['admin']

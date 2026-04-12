@@ -31,64 +31,61 @@ public class DataInitializer {
     }
 
     private void initRoles(RoleRepository roleRepository) {
-        if (roleRepository.findByCode("inactive").isPresent()) {
-            log.info("角色数据已存在（包含未激活角色），跳过初始化");
-            return;
-        }
-
-        Role adminRole = roleRepository.findByCode("admin").orElse(null);
-        Role productionManagerRole = roleRepository.findByCode("production_manager").orElse(null);
-        Role warehouseStaffRole = roleRepository.findByCode("warehouse_staff").orElse(null);
-        Role salesStaffRole = roleRepository.findByCode("sales_staff").orElse(null);
-
         List<Role> rolesToSave = new ArrayList<>();
 
+        Role adminRole = roleRepository.findByCode("admin").orElse(null);
         if (adminRole == null) {
             adminRole = new Role();
             adminRole.setName("系统管理员");
             adminRole.setCode("admin");
             adminRole.setDescription("拥有系统所有权限");
-            adminRole.setPermissions(Arrays.asList(PermissionConstants.ADMIN_PERMISSIONS));
-            rolesToSave.add(adminRole);
         }
+        adminRole.setPermissions(Arrays.asList(PermissionConstants.ADMIN_PERMISSIONS));
+        rolesToSave.add(adminRole);
 
+        Role productionManagerRole = roleRepository.findByCode("production_manager").orElse(null);
         if (productionManagerRole == null) {
             productionManagerRole = new Role();
             productionManagerRole.setName("生产管理人员");
             productionManagerRole.setCode("production_manager");
             productionManagerRole.setDescription("负责生产计划与任务管理");
-            productionManagerRole.setPermissions(Arrays.asList(PermissionConstants.PRODUCTION_MANAGER_PERMISSIONS));
-            rolesToSave.add(productionManagerRole);
         }
+        productionManagerRole.setPermissions(Arrays.asList(PermissionConstants.PRODUCTION_MANAGER_PERMISSIONS));
+        rolesToSave.add(productionManagerRole);
 
+        Role warehouseStaffRole = roleRepository.findByCode("warehouse_staff").orElse(null);
         if (warehouseStaffRole == null) {
             warehouseStaffRole = new Role();
             warehouseStaffRole.setName("仓库操作人员");
             warehouseStaffRole.setCode("warehouse_staff");
             warehouseStaffRole.setDescription("负责库存管理与出入库操作");
-            warehouseStaffRole.setPermissions(Arrays.asList(PermissionConstants.WAREHOUSE_STAFF_PERMISSIONS));
-            rolesToSave.add(warehouseStaffRole);
         }
+        warehouseStaffRole.setPermissions(Arrays.asList(PermissionConstants.WAREHOUSE_STAFF_PERMISSIONS));
+        rolesToSave.add(warehouseStaffRole);
 
+        Role salesStaffRole = roleRepository.findByCode("sales_staff").orElse(null);
         if (salesStaffRole == null) {
             salesStaffRole = new Role();
             salesStaffRole.setName("销售人员");
             salesStaffRole.setCode("sales_staff");
             salesStaffRole.setDescription("负责订单与销售管理");
-            salesStaffRole.setPermissions(Arrays.asList(PermissionConstants.SALES_STAFF_PERMISSIONS));
-            rolesToSave.add(salesStaffRole);
         }
+        salesStaffRole.setPermissions(Arrays.asList(PermissionConstants.SALES_STAFF_PERMISSIONS));
+        rolesToSave.add(salesStaffRole);
 
-        Role inactiveRole = new Role();
-        inactiveRole.setName("未激活用户");
-        inactiveRole.setCode("inactive");
-        inactiveRole.setDescription("新注册用户，等待管理员激活");
+        Role inactiveRole = roleRepository.findByCode("inactive").orElse(null);
+        if (inactiveRole == null) {
+            inactiveRole = new Role();
+            inactiveRole.setName("未激活用户");
+            inactiveRole.setCode("inactive");
+            inactiveRole.setDescription("新注册用户，等待管理员激活");
+        }
         inactiveRole.setPermissions(Arrays.asList(PermissionConstants.INACTIVE_PERMISSIONS));
         rolesToSave.add(inactiveRole);
 
         if (!rolesToSave.isEmpty()) {
             roleRepository.saveAll(rolesToSave);
-            log.info("角色数据初始化完成，共添加 {} 个角色", rolesToSave.size());
+            log.info("角色数据初始化/更新完成，共保存 {} 个角色", rolesToSave.size());
         }
     }
 

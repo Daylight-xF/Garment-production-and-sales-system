@@ -15,6 +15,7 @@ public class PlanVO {
 
     private String id;
     private String planName;
+    private String productDefinitionId;
     private String productName;
     private Integer quantity;
     private Integer completedQuantity;
