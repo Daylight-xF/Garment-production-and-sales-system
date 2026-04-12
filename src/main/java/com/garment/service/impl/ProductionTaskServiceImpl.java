@@ -207,12 +207,46 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
         }
     }
 
+    @Override
+    public int migrateProductInfoForAllTasks() {
+        List<ProductionTask> allTasks = productionTaskRepository.findAll();
+        int migratedCount = 0;
+
+        for (ProductionTask task : allTasks) {
+            if (StringUtils.hasText(task.getPlanId())) {
+                ProductionPlan plan = productionPlanRepository.findById(task.getPlanId()).orElse(null);
+                if (plan != null) {
+                    boolean needUpdate = false;
+
+                    if (!StringUtils.hasText(task.getProductName()) && StringUtils.hasText(plan.getProductName())) {
+                        task.setProductName(plan.getProductName());
+                        needUpdate = true;
+                    }
+
+                    if (!StringUtils.hasText(task.getProductCode()) && StringUtils.hasText(plan.getProductCode())) {
+                        task.setProductCode(plan.getProductCode());
+                        needUpdate = true;
+                    }
+
+                    if (needUpdate) {
+                        productionTaskRepository.save(task);
+                        migratedCount++;
+                    }
+                }
+            }
+        }
+
+        return migratedCount;
+    }
+
     private TaskVO convertToVO(ProductionTask task) {
         String productName = "";
+        String productCode = "";
         if (StringUtils.hasText(task.getPlanId())) {
             ProductionPlan plan = productionPlanRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) {
                 productName = plan.getProductName();
+                productCode = plan.getProductCode();
             }
         }
 
@@ -221,6 +255,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
                 .planId(task.getPlanId())
                 .batchNo(task.getBatchNo())
                 .productName(productName)
+                .productCode(productCode)
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())

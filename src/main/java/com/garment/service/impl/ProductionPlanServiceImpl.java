@@ -67,6 +67,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         ProductionPlan plan = new ProductionPlan();
         plan.setBatchNo(request.getBatchNo());
         plan.setProductDefinitionId(productDef.getId());
+        plan.setProductCode(productDef.getProductCode());
         plan.setProductName(productDef.getProductName());
         plan.setQuantity(request.getQuantity());
         plan.setCompletedQuantity(0);
@@ -248,6 +249,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                     .orElseThrow(() -> new BusinessException("产品定义不存在"));
             plan.setProductDefinitionId(productDef.getId());
+            plan.setProductCode(productDef.getProductCode());
             plan.setProductName(productDef.getProductName());
         }
         if (!isApproved && request.getProductName() != null) {
@@ -395,6 +397,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         ProductionTask task = new ProductionTask();
         task.setPlanId(plan.getId());
         task.setBatchNo(plan.getBatchNo());
+        task.setProductName(plan.getProductName());
+        task.setProductCode(plan.getProductCode());
         task.setTaskName(plan.getBatchNo() + "-生产任务");
         task.setProgress(0);
         task.setStatus("PENDING");
@@ -462,6 +466,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .id(task.getId())
                 .planId(task.getPlanId())
                 .batchNo(task.getBatchNo())
+                .productName(task.getProductName())
+                .productCode(task.getProductCode())
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())
@@ -490,6 +496,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .id(plan.getId())
                 .batchNo(plan.getBatchNo())
                 .productDefinitionId(plan.getProductDefinitionId())
+                .productCode(plan.getProductCode())
                 .productName(plan.getProductName())
                 .quantity(plan.getQuantity())
                 .completedQuantity(plan.getCompletedQuantity())

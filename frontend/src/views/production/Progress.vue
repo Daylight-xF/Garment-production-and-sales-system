@@ -37,7 +37,7 @@
         <div class="plan-info">
           <div class="plan-info-row">
             <span class="label">产品名称：</span>
-            <span>{{ plan.productName }}</span>
+            <span>{{ plan.productName }}{{ plan.productCode ? '-' + plan.productCode : '' }}</span>
           </div>
           <div class="plan-info-row">
             <span class="label">总体进度：</span>

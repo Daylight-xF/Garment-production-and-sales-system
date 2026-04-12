@@ -19,4 +19,6 @@ public interface ProductionTaskService {
     TaskVO assignTask(String id, String assignee);
 
     TaskVO updateProgress(String id, Integer progress);
+
+    int migrateProductInfoForAllTasks();
 }

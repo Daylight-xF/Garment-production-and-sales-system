@@ -17,6 +17,7 @@ public class SalesRecordVO {
     private String customerId;
     private String customerName;
     private String productId;
+    private String productCode;
     private String productName;
     private Integer quantity;
     private Double unitPrice;

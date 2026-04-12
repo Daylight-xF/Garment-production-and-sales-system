@@ -49,7 +49,11 @@
 
         <h3 style="margin-top: 24px">订单明细</h3>
         <el-table :data="order.items || []" border stripe>
-          <el-table-column prop="productName" label="产品名称" />
+          <el-table-column label="产品名称" min-width="150">
+            <template #default="{ row }">
+              {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
+            </template>
+          </el-table-column>
           <el-table-column prop="specification" label="规格" />
           <el-table-column prop="quantity" label="数量" width="100" />
           <el-table-column prop="unitPrice" label="单价" width="120">

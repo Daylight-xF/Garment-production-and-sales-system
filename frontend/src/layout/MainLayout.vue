@@ -42,6 +42,7 @@
           </template>
           <el-menu-item index="/inventory/raw-material">原材料库存</el-menu-item>
           <el-menu-item index="/inventory/finished-product">成品库存</el-menu-item>
+          <el-menu-item index="/inventory/pending-stock-in">待入库</el-menu-item>
           <el-menu-item index="/inventory/alert">库存预警</el-menu-item>
         </el-sub-menu>
 

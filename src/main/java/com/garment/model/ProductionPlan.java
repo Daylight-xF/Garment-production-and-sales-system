@@ -23,6 +23,8 @@ public class ProductionPlan {
 
     private String productDefinitionId;
 
+    private String productCode;
+
     private String productName;
 
     private Integer quantity;

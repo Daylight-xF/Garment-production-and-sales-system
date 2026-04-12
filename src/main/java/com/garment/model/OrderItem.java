@@ -22,6 +22,8 @@ public class OrderItem {
 
     private String productId;
 
+    private String productCode;
+
     private String productName;
 
     private String specification;

@@ -5,10 +5,12 @@ import com.garment.exception.BusinessException;
 import com.garment.model.Order;
 import com.garment.model.OrderItem;
 import com.garment.model.OrderLog;
+import com.garment.model.ProductDefinition;
 import com.garment.model.User;
 import com.garment.repository.OrderItemRepository;
 import com.garment.repository.OrderLogRepository;
 import com.garment.repository.OrderRepository;
+import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.OrderService;
 import org.springframework.data.domain.Page;
@@ -30,15 +32,18 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final OrderLogRepository orderLogRepository;
     private final UserRepository userRepository;
+    private final ProductDefinitionRepository productDefinitionRepository;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OrderItemRepository orderItemRepository,
                             OrderLogRepository orderLogRepository,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            ProductDefinitionRepository productDefinitionRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderLogRepository = orderLogRepository;
         this.userRepository = userRepository;
+        this.productDefinitionRepository = productDefinitionRepository;
     }
 
     @Override
@@ -69,6 +74,11 @@ public class OrderServiceImpl implements OrderService {
             item.setQuantity(itemDTO.getQuantity());
             item.setUnitPrice(itemDTO.getUnitPrice());
             item.setAmount(amount);
+
+            if (itemDTO.getProductId() != null) {
+                productDefinitionRepository.findById(itemDTO.getProductId())
+                        .ifPresent(productDef -> item.setProductCode(productDef.getProductCode()));
+            }
             items.add(item);
         }
         order.setTotalAmount(totalAmount);
@@ -262,6 +272,7 @@ public class OrderServiceImpl implements OrderService {
             itemDTOs = items.stream()
                     .map(item -> OrderItemDTO.builder()
                             .productId(item.getProductId())
+                            .productCode(item.getProductCode())
                             .productName(item.getProductName())
                             .specification(item.getSpecification())
                             .quantity(item.getQuantity())

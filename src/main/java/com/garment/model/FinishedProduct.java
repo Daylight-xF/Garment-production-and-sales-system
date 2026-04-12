@@ -19,6 +19,8 @@ public class FinishedProduct {
     @Id
     private String id;
 
+    private String productCode;
+
     private String name;
 
     private String category;

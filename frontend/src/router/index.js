@@ -64,6 +64,12 @@ const routes = [
         meta: { title: '库存预警', roles: ['admin', 'warehouse_staff'] }
       },
       {
+        path: 'inventory/pending-stock-in',
+        name: 'PendingStockIn',
+        component: () => import('../views/inventory/PendingStockIn.vue'),
+        meta: { title: '待入库', roles: ['admin', 'warehouse_staff'] }
+      },
+      {
         path: 'order/list',
         name: 'OrderList',
         component: () => import('../views/order/List.vue'),

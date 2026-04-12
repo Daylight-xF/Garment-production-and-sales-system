@@ -35,7 +35,11 @@
       </template>
 
       <el-table :data="productList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="name" label="名称" min-width="100" />
+        <el-table-column label="名称" min-width="150">
+          <template #default="{ row }">
+            {{ row.name }}{{ row.productCode ? '-' + row.productCode : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="category" label="类别" width="80" />
         <el-table-column prop="specification" label="规格" min-width="100" />
         <el-table-column prop="unit" label="单位" width="60" align="center" />

@@ -40,7 +40,11 @@
 
       <el-table :data="recordList" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="customerName" label="客户名称" min-width="120" />
-        <el-table-column prop="productName" label="产品名称" min-width="140" />
+        <el-table-column label="产品名称" min-width="160">
+          <template #default="{ row }">
+            {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="quantity" label="数量" width="80" align="center" />
         <el-table-column prop="unitPrice" label="单价" width="100" align="right">
           <template #default="{ row }">

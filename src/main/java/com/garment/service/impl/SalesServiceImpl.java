@@ -3,9 +3,11 @@ package com.garment.service.impl;
 import com.garment.dto.*;
 import com.garment.exception.BusinessException;
 import com.garment.model.Customer;
+import com.garment.model.ProductDefinition;
 import com.garment.model.SalesRecord;
 import com.garment.model.User;
 import com.garment.repository.CustomerRepository;
+import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.SalesService;
@@ -25,13 +27,16 @@ public class SalesServiceImpl implements SalesService {
     private final SalesRecordRepository salesRecordRepository;
     private final CustomerRepository customerRepository;
     private final UserRepository userRepository;
+    private final ProductDefinitionRepository productDefinitionRepository;
 
     public SalesServiceImpl(SalesRecordRepository salesRecordRepository,
                             CustomerRepository customerRepository,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            ProductDefinitionRepository productDefinitionRepository) {
         this.salesRecordRepository = salesRecordRepository;
         this.customerRepository = customerRepository;
         this.userRepository = userRepository;
+        this.productDefinitionRepository = productDefinitionRepository;
     }
 
     @Override
@@ -50,6 +55,11 @@ public class SalesServiceImpl implements SalesService {
         record.setSaleDate(request.getSaleDate() != null ? request.getSaleDate() : new Date());
         record.setRemark(request.getRemark());
         record.setCreateBy(userId);
+
+        if (request.getProductId() != null) {
+            productDefinitionRepository.findById(request.getProductId())
+                    .ifPresent(productDef -> record.setProductCode(productDef.getProductCode()));
+        }
 
         Optional<User> userOpt = userRepository.findById(userId);
         userOpt.ifPresent(user -> record.setCreateByName(user.getRealName()));
@@ -349,6 +359,7 @@ public class SalesServiceImpl implements SalesService {
                 .customerId(record.getCustomerId())
                 .customerName(record.getCustomerName())
                 .productId(record.getProductId())
+                .productCode(record.getProductCode())
                 .productName(record.getProductName())
                 .quantity(record.getQuantity())
                 .unitPrice(record.getUnitPrice())

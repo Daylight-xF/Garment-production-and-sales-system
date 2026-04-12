@@ -85,4 +85,10 @@ public class ProductionTaskController {
         TaskVO taskVO = productionTaskService.updateProgress(id, progress);
         return Result.success(taskVO);
     }
+
+    @PostMapping("/migrate-product-info")
+    public Result<String> migrateProductInfo() {
+        int count = productionTaskService.migrateProductInfoForAllTasks();
+        return Result.success("成功迁移 " + count + " 条任务的产品信息");
+    }
 }

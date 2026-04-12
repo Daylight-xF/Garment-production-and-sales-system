@@ -17,6 +17,8 @@ public class OrderItemDTO {
     @NotBlank(message = "产品ID不能为空")
     private String productId;
 
+    private String productCode;
+
     private String productName;
 
     private String specification;

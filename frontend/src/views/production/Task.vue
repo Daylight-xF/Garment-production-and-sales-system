@@ -33,7 +33,11 @@
 
       <el-table :data="taskList" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="taskName" label="任务名称" min-width="120" />
-        <el-table-column prop="productName" label="产品名称" min-width="120" />
+        <el-table-column label="产品名称" min-width="150">
+          <template #default="{ row }">
+            {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="assigneeName" label="分配人" width="100" align="center">
           <template #default="{ row }">
             {{ row.assigneeName || '未分配' }}

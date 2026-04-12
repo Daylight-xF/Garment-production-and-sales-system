@@ -38,7 +38,11 @@
 
       <el-table :data="planList" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="batchNo" label="批次号" min-width="120" />
-        <el-table-column prop="productName" label="产品名称" min-width="100" />
+        <el-table-column label="产品名称" min-width="150">
+          <template #default="{ row }">
+            {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
         <el-table-column prop="startDate" label="计划开始日期" width="110">

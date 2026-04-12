@@ -16,6 +16,7 @@ public class PlanVO {
     private String id;
     private String batchNo;
     private String productDefinitionId;
+    private String productCode;
     private String productName;
     private Integer quantity;
     private Integer completedQuantity;
