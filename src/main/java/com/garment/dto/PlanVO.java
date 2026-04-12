@@ -14,7 +14,7 @@ import java.util.Date;
 public class PlanVO {
 
     private String id;
-    private String planName;
+    private String batchNo;
     private String productDefinitionId;
     private String productName;
     private Integer quantity;

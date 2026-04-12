@@ -7,7 +7,7 @@ import java.util.Date;
 @Data
 public class PlanUpdateRequest {
 
-    private String planName;
+    private String batchNo;
 
     private String productDefinitionId;
 

@@ -19,7 +19,7 @@ public class ProductionPlan {
     @Id
     private String id;
 
-    private String planName;
+    private String batchNo;
 
     private String productDefinitionId;
 

@@ -2,10 +2,10 @@
   <div class="plan-container">
     <el-card class="search-card">
       <el-form :inline="true" :model="searchForm" class="search-form">
-        <el-form-item label="计划名称">
+        <el-form-item label="批次号（产品名称）">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入计划名称"
+            placeholder="请输入批次号或产品名"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -37,7 +37,7 @@
       </template>
 
       <el-table :data="planList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="planName" label="计划名称" min-width="120" />
+        <el-table-column prop="batchNo" label="批次号" min-width="120" />
         <el-table-column prop="productName" label="产品名称" min-width="100" />
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
@@ -125,10 +125,10 @@
         :rules="planFormRules"
         label-width="100px"
       >
-        <el-form-item label="计划名称" prop="planName">
+        <el-form-item label="批次号" prop="batchNo">
           <el-input
-            v-model="planForm.planName"
-            placeholder="请输入计划名称"
+            v-model="planForm.batchNo"
+            placeholder="请输入批次号"
             :disabled="isEditApproved"
           >
             <template v-if="isEditApproved" #prefix>
@@ -219,8 +219,8 @@
       destroy-on-close
     >
       <el-form label-width="80px">
-        <el-form-item label="计划名称">
-          <span>{{ currentPlan.planName }}</span>
+        <el-form-item label="批次号">
+          <span>{{ currentPlan.batchNo }}</span>
         </el-form-item>
         <el-form-item label="审批结果">
           <el-radio-group v-model="approveForm.status">
@@ -250,7 +250,7 @@
       destroy-on-close
     >
       <el-alert
-        :title="`计划：${currentPlan.planName} | 产品：${currentPlan.productName}`"
+        :title="`批次号：${currentPlan.batchNo} | 产品：${currentPlan.productName}`"
         type="info"
         :closable="false"
         show-icon
@@ -396,7 +396,7 @@ const pagination = reactive({
 })
 
 const planForm = reactive({
-  planName: '',
+  batchNo: '',
   productDefinitionId: '',
   productName: '',
   quantity: 1,
@@ -437,7 +437,7 @@ const calculatedProgress = computed(() => {
 const router = useRouter()
 
 const planFormRules = {
-  planName: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
+  batchNo: [{ required: true, message: '请输入批次号', trigger: 'blur' }],
   productDefinitionId: [{ required: true, message: '请选择产品定义', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入计划数量', trigger: 'blur' }]
 }
@@ -481,7 +481,7 @@ function handleReset() {
 
 async function fetchProductDefinitions() {
   try {
-    const res = await getProductDefinitionList({ size: 1000 })
+    const res = await getProductDefinitionList({ size: 1000, status: '启用' })
     const data = res.data || res
     productDefinitionList.value = data.list || []
   } catch (error) {
@@ -502,10 +502,24 @@ function getCurrentProduct() {
   return productDefinitionList.value.find(p => p.id === planForm.productDefinitionId)
 }
 
+function generateUniqueBatchNo() {
+  const now = new Date()
+  const dateStr = now.getFullYear().toString() +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0')
+  const randomNum = Math.floor(1000 + Math.random() * 9000)
+  const batchNo = `PC-${dateStr}-${randomNum}`
+  const isDuplicate = planList.value.some(p => p.batchNo === batchNo)
+  if (isDuplicate) {
+    return generateUniqueBatchNo()
+  }
+  return batchNo
+}
+
 function handleAdd() {
   dialogType.value = 'add'
   Object.assign(planForm, {
-    planName: '',
+    batchNo: generateUniqueBatchNo(),
     productDefinitionId: '',
     productName: '',
     quantity: 1,
@@ -522,7 +536,7 @@ function handleEdit(row) {
   currentPlan.value = row
   originalQuantity.value = row.quantity || 0
   Object.assign(planForm, {
-    planName: row.planName,
+    batchNo: row.batchNo,
     productDefinitionId: row.productDefinitionId || '',
     productName: row.productName || '',
     quantity: row.quantity,
@@ -608,7 +622,7 @@ async function handleApproveSubmit() {
 
 async function handleDelete(row) {
   try {
-    await ElMessageBox.confirm(`确定删除计划"${row.planName}"吗？此操作不可恢复。`, '警告', {
+    await ElMessageBox.confirm(`确定删除计划"${row.batchNo}"吗？此操作不可恢复。`, '警告', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
@@ -626,7 +640,7 @@ async function handleDelete(row) {
 async function handleStartProduction(row) {
   try {
     await ElMessageBox.confirm(
-      `确定开始执行计划【${row.planName}】吗？<br/>系统将自动创建1个生产任务。`,
+      `确定开始执行计划【${row.batchNo}】吗？<br/>系统将自动创建1个生产任务。`,
       '开始生产',
       { confirmButtonText: '确定', cancelButtonText: '取消', type: 'info', dangerouslyUseHTMLString: true }
     )
@@ -664,7 +678,7 @@ function canCompletePlan(row) {
 async function handleCompletePlan(row) {
   try {
     await ElMessageBox.confirm(
-      `确定完成计划【${row.planName}】吗？<br/>已完成数量：${row.completedQuantity}/${row.quantity}`,
+      `确定完成计划【${row.batchNo}】吗？<br/>已完成数量：${row.completedQuantity}/${row.quantity}`,
       '完成确认',
       { confirmButtonText: '确定完成', cancelButtonText: '取消', type: 'success', dangerouslyUseHTMLString: true }
     )

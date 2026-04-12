@@ -15,7 +15,7 @@ public class TaskVO {
 
     private String id;
     private String planId;
-    private String planName;
+    private String batchNo;
     private String productName;
     private String taskName;
     private String assignee;

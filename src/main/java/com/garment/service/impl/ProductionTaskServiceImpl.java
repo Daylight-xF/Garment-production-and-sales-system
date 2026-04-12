@@ -44,7 +44,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
 
         ProductionTask task = new ProductionTask();
         task.setPlanId(request.getPlanId());
-        task.setPlanName(plan.getPlanName());
+        task.setBatchNo(plan.getBatchNo());
         task.setTaskName(request.getTaskName());
         task.setProgress(0);
         task.setStatus("PENDING");
@@ -219,7 +219,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
         return TaskVO.builder()
                 .id(task.getId())
                 .planId(task.getPlanId())
-                .planName(task.getPlanName())
+                .batchNo(task.getBatchNo())
                 .productName(productName)
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())

@@ -21,7 +21,7 @@ public class ProductionTask {
 
     private String planId;
 
-    private String planName;
+    private String batchNo;
 
     private String taskName;
 

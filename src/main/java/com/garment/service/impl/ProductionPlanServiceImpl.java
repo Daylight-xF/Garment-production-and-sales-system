@@ -55,13 +55,17 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
     @Override
     public PlanVO createPlan(PlanCreateRequest request, String userId) {
+        if (productionPlanRepository.existsByBatchNo(request.getBatchNo())) {
+            throw new BusinessException("批次号已存在：" + request.getBatchNo());
+        }
+
         ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                 .orElseThrow(() -> new BusinessException("产品定义不存在"));
 
-        checkAndDeductRawMaterials(productDef, request.getQuantity(), request.getPlanName());
+        checkAndDeductRawMaterials(productDef, request.getQuantity(), request.getBatchNo());
 
         ProductionPlan plan = new ProductionPlan();
-        plan.setPlanName(request.getPlanName());
+        plan.setBatchNo(request.getBatchNo());
         plan.setProductDefinitionId(productDef.getId());
         plan.setProductName(productDef.getProductName());
         plan.setQuantity(request.getQuantity());
@@ -78,7 +82,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return convertToVO(saved);
     }
 
-    private void checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String planName) {
+    private void checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String batchNo) {
         if (productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
             return;
         }
@@ -114,7 +118,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             stockOutRequest.setItemType("RAW_MATERIAL");
             stockOutRequest.setItemId(material.getMaterialId());
             stockOutRequest.setQuantity(deductQty);
-            stockOutRequest.setReason("生产计划-" + planName + "-扣减");
+            stockOutRequest.setReason("生产计划-" + batchNo + "-扣减");
             inventoryService.stockOut(stockOutRequest, "system");
         }
     }
@@ -145,7 +149,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
     }
 
-    private void restoreRawMaterials(String planId, String planName) {
+    private void restoreRawMaterials(String planId, String batchNo) {
         ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
         if (plan == null || Boolean.FALSE.equals(plan.getMaterialsDeducted())) {
             return;
@@ -164,7 +168,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             stockInRequest.setItemType("RAW_MATERIAL");
             stockInRequest.setItemId(material.getMaterialId());
             stockInRequest.setQuantity(restoreIntQty);
-            stockInRequest.setReason("生产计划-" + planName + "-取消返还");
+            stockInRequest.setReason("生产计划-" + batchNo + "-取消返还");
             inventoryService.stockIn(stockInRequest, "system");
         }
 
@@ -187,7 +191,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .filter(plan -> {
                     boolean matchKeyword = true;
                     if (StringUtils.hasText(keyword)) {
-                        matchKeyword = (plan.getPlanName() != null && plan.getPlanName().contains(keyword))
+                        matchKeyword = (plan.getBatchNo() != null && plan.getBatchNo().contains(keyword))
                                 || (plan.getProductName() != null && plan.getProductName().contains(keyword));
                     }
                     boolean matchStatus = true;
@@ -230,11 +234,11 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
         boolean isApproved = "APPROVED".equals(plan.getStatus());
 
-        if (isApproved && request.getPlanName() != null) {
-            throw new BusinessException("已审批通过的计划不允许修改计划名称");
+        if (isApproved && request.getBatchNo() != null) {
+            throw new BusinessException("已审批通过的计划不允许修改批次号");
         }
-        if (!isApproved && request.getPlanName() != null) {
-            plan.setPlanName(request.getPlanName());
+        if (!isApproved && request.getBatchNo() != null) {
+            plan.setBatchNo(request.getBatchNo());
         }
 
         if (isApproved && request.getProductDefinitionId() != null) {
@@ -311,7 +315,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 stockOutRequest.setItemType("RAW_MATERIAL");
                 stockOutRequest.setItemId(material.getMaterialId());
                 stockOutRequest.setQuantity(adjustIntQty);
-                stockOutRequest.setReason("生产计划-" + plan.getPlanName()
+                stockOutRequest.setReason("生产计划-" + plan.getBatchNo()
                         + "-数量调整(从" + oldQty + "增至" + newQty + ")-扣减");
                 inventoryService.stockOut(stockOutRequest, "system");
             } else {
@@ -319,7 +323,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 stockInRequest.setItemType("RAW_MATERIAL");
                 stockInRequest.setItemId(material.getMaterialId());
                 stockInRequest.setQuantity(adjustIntQty);
-                stockInRequest.setReason("生产计划-" + plan.getPlanName()
+                stockInRequest.setReason("生产计划-" + plan.getBatchNo()
                         + "-数量调整(从" + oldQty + "减至" + newQty + ")-返还");
                 inventoryService.stockIn(stockInRequest, "system");
             }
@@ -336,7 +340,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("只有【已取消】状态的生产计划才能删除，当前计划状态为：" + statusText);
         }
 
-        restoreRawMaterials(id, plan.getPlanName());
+        restoreRawMaterials(id, plan.getBatchNo());
 
         productionPlanRepository.deleteById(id);
     }
@@ -366,7 +370,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
 
         if ("CANCELLED".equals(status)) {
-            restoreRawMaterials(id, plan.getPlanName());
+            restoreRawMaterials(id, plan.getBatchNo());
         }
 
         plan.setStatus(status);
@@ -390,13 +394,13 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
         ProductionTask task = new ProductionTask();
         task.setPlanId(plan.getId());
-        task.setPlanName(plan.getPlanName());
-        task.setTaskName(plan.getPlanName() + "-生产任务");
+        task.setBatchNo(plan.getBatchNo());
+        task.setTaskName(plan.getBatchNo() + "-生产任务");
         task.setProgress(0);
         task.setStatus("PENDING");
         task.setPlanQuantity(plan.getQuantity());
         task.setCompletedQuantity(0);
-        task.setDescription("自动从生产计划【" + plan.getPlanName() + "】生成");
+        task.setDescription("自动从生产计划【" + plan.getBatchNo() + "】生成");
         task.setCreateBy(userId);
 
         productionTaskRepository.save(task);
@@ -457,7 +461,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return TaskVO.builder()
                 .id(task.getId())
                 .planId(task.getPlanId())
-                .planName(task.getPlanName())
+                .batchNo(task.getBatchNo())
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())
@@ -484,7 +488,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
         return PlanVO.builder()
                 .id(plan.getId())
-                .planName(plan.getPlanName())
+                .batchNo(plan.getBatchNo())
                 .productDefinitionId(plan.getProductDefinitionId())
                 .productName(plan.getProductName())
                 .quantity(plan.getQuantity())

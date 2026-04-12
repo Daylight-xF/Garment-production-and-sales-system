@@ -37,7 +37,7 @@ public class ProductDefinitionServiceImpl implements ProductDefinitionService {
     }
 
     @Override
-    public Page<ProductDefinitionVO> getProductDefinitionList(String name, String category, Pageable pageable) {
+    public Page<ProductDefinitionVO> getProductDefinitionList(String name, String category, String status, Pageable pageable) {
         Query query = new Query();
 
         if (name != null && !name.trim().isEmpty()) {
@@ -46,6 +46,10 @@ public class ProductDefinitionServiceImpl implements ProductDefinitionService {
 
         if (category != null && !category.trim().isEmpty()) {
             query.addCriteria(Criteria.where("category").is(category));
+        }
+
+        if (status != null && !status.trim().isEmpty()) {
+            query.addCriteria(Criteria.where("status").is(status));
         }
 
         long total = mongoTemplate.count(query, ProductDefinition.class);

@@ -10,4 +10,6 @@ import java.util.List;
 public interface ProductionPlanRepository extends MongoRepository<ProductionPlan, String> {
 
     List<ProductionPlan> findByStatus(String status);
+
+    boolean existsByBatchNo(String batchNo);
 }

@@ -2,10 +2,10 @@
   <div class="progress-container">
     <el-card class="search-card">
       <el-form :inline="true" :model="searchForm" class="search-form">
-        <el-form-item label="计划名称">
+        <el-form-item label="批次号">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入计划名称"
+            placeholder="请输入批次号"
             clearable
             @keyup.enter="fetchData"
           />
@@ -27,7 +27,7 @@
       >
         <template #header>
           <div class="plan-card-header">
-            <span class="plan-name">{{ plan.planName }}</span>
+            <span class="plan-name">{{ plan.batchNo }}</span>
             <el-tag :type="statusTagType(plan.status)" size="small">
               {{ statusText(plan.status) }}
             </el-tag>
@@ -100,7 +100,7 @@ const searchForm = reactive({
 const filteredPlans = computed(() => {
   if (!searchForm.keyword) return planList.value
   return planList.value.filter(p =>
-    p.planName && p.planName.includes(searchForm.keyword)
+    p.batchNo && p.batchNo.includes(searchForm.keyword)
   )
 })
 

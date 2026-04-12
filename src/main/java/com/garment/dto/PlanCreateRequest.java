@@ -9,8 +9,8 @@ import java.util.Date;
 @Data
 public class PlanCreateRequest {
 
-    @NotBlank(message = "计划名称不能为空")
-    private String planName;
+    @NotBlank(message = "批次号不能为空")
+    private String batchNo;
 
     @NotBlank(message = "请选择产品定义")
     private String productDefinitionId;

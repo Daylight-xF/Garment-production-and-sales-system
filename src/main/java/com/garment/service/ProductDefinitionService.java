@@ -7,7 +7,7 @@ import org.springframework.data.domain.Page;
 
 public interface ProductDefinitionService {
 
-    Page<ProductDefinitionVO> getProductDefinitionList(String name, String category, org.springframework.data.domain.Pageable pageable);
+    Page<ProductDefinitionVO> getProductDefinitionList(String name, String category, String status, org.springframework.data.domain.Pageable pageable);
 
     ProductDefinitionVO getProductDefinitionById(String id);
 

@@ -29,11 +29,12 @@ public class ProductDefinitionController {
     public Result<Map<String, Object>> getProductDefinitionList(
             @RequestParam(defaultValue = "") String name,
             @RequestParam(defaultValue = "") String category,
+            @RequestParam(defaultValue = "") String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
 
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<ProductDefinitionVO> pageResult = productDefinitionService.getProductDefinitionList(name, category, pageable);
+        Page<ProductDefinitionVO> pageResult = productDefinitionService.getProductDefinitionList(name, category, status, pageable);
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", pageResult.getContent());
