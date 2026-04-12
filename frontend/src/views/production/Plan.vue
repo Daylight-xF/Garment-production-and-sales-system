@@ -58,7 +58,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
@@ -68,7 +68,34 @@
               size="small"
               @click="handleApprove(row)"
             >审批</el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button
+              v-if="row.status === 'APPROVED'"
+              type="warning"
+              link
+              size="small"
+              @click="handleStartProduction(row)"
+            >开始生产</el-button>
+            <el-button
+              v-if="row.status === 'IN_PROGRESS'"
+              type="primary"
+              link
+              size="small"
+              @click="handleViewTasks(row)"
+            >查看任务</el-button>
+            <el-button
+              v-if="row.status === 'IN_PROGRESS' && canCompletePlan(row)"
+              type="success"
+              link
+              size="small"
+              @click="handleCompletePlan(row)"
+            >完成确认</el-button>
+            <el-button
+              v-if="row.status === 'PENDING' || row.status === 'CANCELLED'"
+              type="danger"
+              link
+              size="small"
+              @click="handleDelete(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -206,13 +233,119 @@
         <el-button type="primary" :loading="submitLoading" @click="handleApproveSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="taskDialogVisible"
+      title="生产任务详情"
+      width="800px"
+      destroy-on-close
+    >
+      <el-alert
+        :title="`计划：${currentPlan.planName} | 产品：${currentPlan.productName}`"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+      />
+
+      <el-row :gutter="16" style="margin-bottom: 16px">
+        <el-col :span="8">
+          <el-card shadow="hover" class="stat-card">
+            <div class="stat-number">{{ currentPlan.quantity || 0 }}</div>
+            <div class="stat-label">计划总数</div>
+          </el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="hover" class="stat-card success">
+            <div class="stat-number">{{ currentPlan.completedQuantity || 0 }}</div>
+            <div class="stat-label">已完成</div>
+          </el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="hover" class="stat-card warning">
+            <div class="stat-number">{{ (currentPlan.quantity || 0) - (currentPlan.completedQuantity || 0) }}</div>
+            <div class="stat-label">剩余数量</div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-table :data="planTaskList" v-loading="loadingTasks" border stripe>
+        <el-table-column prop="taskName" label="任务名称" min-width="150" />
+        <el-table-column prop="assigneeName" label="负责人" width="100" align="center">
+          <template #default="{ row }">
+            {{ row.assigneeName || '未分配' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" width="200" align="center">
+          <template #default="{ row }">
+            <el-progress
+              :percentage="row.progress || 0"
+              :status="row.progress === 100 ? 'success' : ''"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="taskStatusTagType(row.status)" size="small">
+              {{ taskStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'PENDING'"
+              type="primary"
+              link
+              size="small"
+              @click="handleAssignTaskInDialog(row)"
+            >分配</el-button>
+            <el-button
+              v-if="row.status !== 'COMPLETED'"
+              type="warning"
+              link
+              size="small"
+              @click="handleUpdateProgressInDialog(row)"
+            >更新进度</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button @click="taskDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="goToTaskPage">前往任务管理</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="progressDialogVisible"
+      title="更新任务进度"
+      width="400px"
+      destroy-on-close
+    >
+      <el-form label-width="80px">
+        <el-form-item label="当前任务">
+          <span>{{ currentTask.taskName }}</span>
+        </el-form-item>
+        <el-form-item label="当前进度">
+          <span>{{ currentTask.progress || 0 }}%</span>
+        </el-form-item>
+        <el-form-item label="新进度">
+          <el-slider v-model="newProgress" :min="0" :max="100" show-input />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="progressDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmitProgress">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan } from '../../api/production'
+import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan, startProduction, completePlan, getPlanTasks, updateTaskProgress } from '../../api/production'
 import { getProductDefinitionList } from '../../api/productDefinition'
 
 const loading = ref(false)
@@ -251,6 +384,13 @@ const approveForm = reactive({
   status: 'APPROVED',
   remark: ''
 })
+
+const taskDialogVisible = ref(false)
+const loadingTasks = ref(false)
+const planTaskList = ref([])
+const progressDialogVisible = ref(false)
+const currentTask = ref({})
+const newProgress = ref(0)
 
 const planFormRules = {
   planName: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
@@ -411,6 +551,91 @@ async function handleDelete(row) {
   }
 }
 
+async function handleStartProduction(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定开始执行计划【${row.planName}】吗？<br/>系统将自动创建1个生产任务。`,
+      '开始生产',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'info', dangerouslyUseHTMLString: true }
+    )
+
+    await startProduction(row.id)
+    ElMessage.success('已开始生产，任务已生成')
+    fetchPlanList()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '操作失败')
+    }
+  }
+}
+
+async function handleViewTasks(row) {
+  currentPlan.value = row
+  taskDialogVisible.value = true
+
+  loadingTasks.value = true
+  try {
+    const res = await getPlanTasks(row.id)
+    planTaskList.value = res.data || res
+  } catch (error) {
+    ElMessage.error(error.message || '获取任务列表失败')
+    planTaskList.value = []
+  } finally {
+    loadingTasks.value = false
+  }
+}
+
+function canCompletePlan(row) {
+  return row.completedQuantity >= row.quantity
+}
+
+async function handleCompletePlan(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定完成计划【${row.planName}】吗？<br/>已完成数量：${row.completedQuantity}/${row.quantity}`,
+      '完成确认',
+      { confirmButtonText: '确定完成', cancelButtonText: '取消', type: 'success', dangerouslyUseHTMLString: true }
+    )
+
+    await completePlan(row.id)
+    ElMessage.success('计划已完成')
+    fetchPlanList()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '操作失败')
+    }
+  }
+}
+
+function goToTaskPage() {
+  window.location.href = '/#/production/task'
+}
+
+function handleAssignTaskInDialog(row) {
+  ElMessage.info(`请在任务管理页面分配任务：【${row.taskName}】`)
+  goToTaskPage()
+}
+
+function handleUpdateProgressInDialog(row) {
+  currentTask.value = row
+  newProgress.value = row.progress || 0
+  progressDialogVisible.value = true
+}
+
+async function handleSubmitProgress() {
+  submitLoading.value = true
+  try {
+    await updateTaskProgress(currentTask.value.id, { progress: newProgress.value })
+    ElMessage.success('进度更新成功')
+    progressDialogVisible.value = false
+    handleViewTasks(currentPlan.value)
+  } catch (error) {
+    ElMessage.error(error.message || '更新失败')
+  } finally {
+    submitLoading.value = false
+  }
+}
+
 function statusTagType(status) {
   const map = {
     PENDING: 'warning',
@@ -429,6 +654,24 @@ function statusText(status) {
     IN_PROGRESS: '进行中',
     COMPLETED: '已完成',
     CANCELLED: '已取消'
+  }
+  return map[status] || status
+}
+
+function taskStatusTagType(status) {
+  const map = {
+    PENDING: 'warning',
+    IN_PROGRESS: '',
+    COMPLETED: 'success'
+  }
+  return map[status] || ''
+}
+
+function taskStatusText(status) {
+  const map = {
+    PENDING: '待分配',
+    IN_PROGRESS: '进行中',
+    COMPLETED: '已完成'
   }
   return map[status] || status
 }
@@ -482,5 +725,26 @@ function disabledEndDate(time) {
 .info-title {
   font-weight: 600;
   color: #409eff;
+}
+
+.stat-card {
+  text-align: center;
+  padding: 10px;
+}
+.stat-card .stat-number {
+  font-size: 28px;
+  font-weight: bold;
+  color: #303133;
+}
+.stat-card .stat-label {
+  font-size: 14px;
+  color: #909399;
+  margin-top: 8px;
+}
+.stat-card.success .stat-number {
+  color: #67c23a;
+}
+.stat-card.warning .stat-number {
+  color: #e6a23c;
 }
 </style>

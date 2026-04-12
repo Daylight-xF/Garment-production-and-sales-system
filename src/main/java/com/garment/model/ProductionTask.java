@@ -39,6 +39,10 @@ public class ProductionTask {
 
     private String description;
 
+    private Integer planQuantity = 0;
+
+    private Integer completedQuantity = 0;
+
     private String createBy;
 
     @CreatedDate

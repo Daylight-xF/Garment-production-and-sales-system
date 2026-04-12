@@ -4,6 +4,7 @@ import com.garment.dto.PlanCreateRequest;
 import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.PlanVO;
 import com.garment.dto.Result;
+import com.garment.dto.TaskVO;
 import com.garment.service.ProductionPlanService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -82,5 +84,28 @@ public class ProductionPlanController {
         String status = body.get("status");
         PlanVO planVO = productionPlanService.approvePlan(id, status);
         return Result.success(planVO);
+    }
+
+    @PostMapping("/{id}/start")
+    @PreAuthorize("hasAuthority('PLAN_UPDATE')")
+    public Result<PlanVO> startProduction(@PathVariable String id,
+                                           Authentication authentication) {
+        String userId = (String) authentication.getPrincipal();
+        PlanVO planVO = productionPlanService.startProduction(id, userId);
+        return Result.success(planVO);
+    }
+
+    @PostMapping("/{id}/complete")
+    @PreAuthorize("hasAuthority('PLAN_UPDATE')")
+    public Result<PlanVO> completePlan(@PathVariable String id) {
+        PlanVO planVO = productionPlanService.completePlan(id);
+        return Result.success(planVO);
+    }
+
+    @GetMapping("/{id}/tasks")
+    @PreAuthorize("hasAuthority('PLAN_READ')")
+    public Result<List<TaskVO>> getPlanTasks(@PathVariable String id) {
+        List<TaskVO> tasks = productionPlanService.getTasksByPlanId(id);
+        return Result.success(tasks);
     }
 }

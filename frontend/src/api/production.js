@@ -92,3 +92,24 @@ export function updateTaskProgress(id, data) {
     data
   })
 }
+
+export function startProduction(planId) {
+  return request({
+    url: `/production/plans/${planId}/start`,
+    method: 'post'
+  })
+}
+
+export function completePlan(planId) {
+  return request({
+    url: `/production/plans/${planId}/complete`,
+    method: 'post'
+  })
+}
+
+export function getPlanTasks(planId) {
+  return request({
+    url: `/production/plans/${planId}/tasks`,
+    method: 'get'
+  })
+}

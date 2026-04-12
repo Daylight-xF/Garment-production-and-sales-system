@@ -20,6 +20,11 @@ public class TaskVO {
     private String assignee;
     private String assigneeName;
     private Integer progress;
+
+    private Integer planQuantity;
+
+    private Integer completedQuantity;
+
     private String status;
     private Date startDate;
     private Date endDate;

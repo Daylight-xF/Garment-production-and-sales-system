@@ -165,6 +165,11 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
 
         task.setProgress(progress);
 
+        if (task.getPlanQuantity() != null && task.getPlanQuantity() > 0) {
+            int completed = (int) Math.round(task.getPlanQuantity() * progress / 100.0);
+            task.setCompletedQuantity(completed);
+        }
+
         if (progress == 100) {
             task.setStatus("COMPLETED");
         } else if ("PENDING".equals(task.getStatus()) || "COMPLETED".equals(task.getStatus())) {
@@ -173,22 +178,23 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
 
         ProductionTask saved = productionTaskRepository.save(task);
 
-        updatePlanCompletedQuantity(task.getPlanId());
+        updatePlanCompletedQuantityEnhanced(task.getPlanId());
 
         return convertToVO(saved);
     }
 
-    private void updatePlanCompletedQuantity(String planId) {
+    private void updatePlanCompletedQuantityEnhanced(String planId) {
         if (!StringUtils.hasText(planId)) return;
 
         List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
-        long completedCount = tasks.stream()
-                .filter(t -> "COMPLETED".equals(t.getStatus()))
-                .count();
+
+        int totalCompleted = tasks.stream()
+                .mapToInt(t -> t.getCompletedQuantity() != null ? t.getCompletedQuantity() : 0)
+                .sum();
 
         ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
         if (plan != null) {
-            plan.setCompletedQuantity((int) completedCount);
+            plan.setCompletedQuantity(totalCompleted);
             productionPlanRepository.save(plan);
         }
     }
@@ -202,6 +208,8 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())
                 .progress(task.getProgress())
+                .planQuantity(task.getPlanQuantity())
+                .completedQuantity(task.getCompletedQuantity())
                 .status(task.getStatus())
                 .startDate(task.getStartDate())
                 .endDate(task.getEndDate())

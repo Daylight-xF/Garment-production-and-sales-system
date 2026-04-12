@@ -3,12 +3,15 @@ package com.garment.service.impl;
 import com.garment.dto.PlanCreateRequest;
 import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.PlanVO;
+import com.garment.dto.TaskVO;
 import com.garment.exception.BusinessException;
 import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
+import com.garment.model.ProductionTask;
 import com.garment.model.User;
 import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
+import com.garment.repository.ProductionTaskRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.ProductionPlanService;
 import org.springframework.data.domain.Page;
@@ -18,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,13 +31,16 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     private final ProductionPlanRepository productionPlanRepository;
     private final UserRepository userRepository;
     private final ProductDefinitionRepository productDefinitionRepository;
+    private final ProductionTaskRepository productionTaskRepository;
 
     public ProductionPlanServiceImpl(ProductionPlanRepository productionPlanRepository,
                                       UserRepository userRepository,
-                                      ProductDefinitionRepository productDefinitionRepository) {
+                                      ProductDefinitionRepository productDefinitionRepository,
+                                      ProductionTaskRepository productionTaskRepository) {
         this.productionPlanRepository = productionPlanRepository;
         this.userRepository = userRepository;
         this.productDefinitionRepository = productDefinitionRepository;
+        this.productionTaskRepository = productionTaskRepository;
     }
 
     @Override
@@ -163,6 +170,108 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setStatus(status);
         ProductionPlan saved = productionPlanRepository.save(plan);
         return convertToVO(saved);
+    }
+
+    @Override
+    public PlanVO startProduction(String planId, String userId) {
+        ProductionPlan plan = productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new BusinessException("生产计划不存在"));
+
+        if (!"APPROVED".equals(plan.getStatus())) {
+            throw new BusinessException("只有已审批状态的计划才能开始生产");
+        }
+
+        List<ProductionTask> existingTasks = productionTaskRepository.findByPlanId(planId);
+        if (!existingTasks.isEmpty()) {
+            throw new BusinessException("该计划已生成任务，请勿重复操作");
+        }
+
+        ProductionTask task = new ProductionTask();
+        task.setPlanId(plan.getId());
+        task.setPlanName(plan.getPlanName());
+        task.setTaskName(plan.getPlanName() + "-生产任务");
+        task.setProgress(0);
+        task.setStatus("PENDING");
+        task.setPlanQuantity(plan.getQuantity());
+        task.setCompletedQuantity(0);
+        task.setStartDate(new Date());
+        task.setEndDate(plan.getEndDate());
+        task.setDescription("自动从生产计划【" + plan.getPlanName() + "】生成");
+        task.setCreateBy(userId);
+
+        productionTaskRepository.save(task);
+
+        plan.setStatus("IN_PROGRESS");
+        ProductionPlan savedPlan = productionPlanRepository.save(plan);
+
+        return convertToVO(savedPlan);
+    }
+
+    @Override
+    public PlanVO completePlan(String planId) {
+        ProductionPlan plan = productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new BusinessException("生产计划不存在"));
+
+        if (!"IN_PROGRESS".equals(plan.getStatus())) {
+            throw new BusinessException("只有进行中状态的计划才能完成");
+        }
+
+        List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
+        if (tasks.isEmpty()) {
+            throw new BusinessException("该计划没有关联的生产任务");
+        }
+
+        boolean allCompleted = tasks.stream()
+                .allMatch(task -> "COMPLETED".equals(task.getStatus()));
+
+        if (!allCompleted) {
+            long completedCount = tasks.stream()
+                    .filter(t -> "COMPLETED".equals(t.getStatus()))
+                    .count();
+            throw new BusinessException(
+                    "还有" + (tasks.size() - completedCount) + "个任务未完成，无法确认完成"
+            );
+        }
+
+        plan.setStatus("COMPLETED");
+        plan.setCompletedQuantity(plan.getQuantity());
+        ProductionPlan savedPlan = productionPlanRepository.save(plan);
+
+        return convertToVO(savedPlan);
+    }
+
+    @Override
+    public List<TaskVO> getTasksByPlanId(String planId) {
+        if (!productionPlanRepository.existsById(planId)) {
+            throw new BusinessException("生产计划不存在");
+        }
+
+        List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
+
+        return tasks.stream()
+                .map(this::convertTaskToVO)
+                .collect(Collectors.toList());
+    }
+
+    private TaskVO convertTaskToVO(ProductionTask task) {
+        return TaskVO.builder()
+                .id(task.getId())
+                .planId(task.getPlanId())
+                .planName(task.getPlanName())
+                .taskName(task.getTaskName())
+                .assignee(task.getAssignee())
+                .assigneeName(task.getAssigneeName())
+                .progress(task.getProgress())
+                .planQuantity(task.getPlanQuantity())
+                .completedQuantity(task.getCompletedQuantity())
+                .status(task.getStatus())
+                .startDate(task.getStartDate())
+                .endDate(task.getEndDate())
+                .description(task.getDescription())
+                .createBy(task.getCreateBy())
+                .createTime(task.getCreateTime())
+                .updateTime(task.getUpdateTime())
+                .build();
     }
 
     private PlanVO convertToVO(ProductionPlan plan) {
