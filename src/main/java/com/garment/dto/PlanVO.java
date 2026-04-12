@@ -27,6 +27,10 @@ public class PlanVO {
     private Date startDate;
     private Date endDate;
     private String status;
+    private String color;
+    private String size;
+    private Date taskStartDate;
+    private Date taskEndDate;
     private String description;
     private String createBy;
     private String createByName;

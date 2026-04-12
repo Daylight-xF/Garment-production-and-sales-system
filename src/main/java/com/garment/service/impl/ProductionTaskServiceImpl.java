@@ -242,11 +242,15 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
     private TaskVO convertToVO(ProductionTask task) {
         String productName = "";
         String productCode = "";
+        String color = "";
+        String size = "";
         if (StringUtils.hasText(task.getPlanId())) {
             ProductionPlan plan = productionPlanRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) {
                 productName = plan.getProductName();
                 productCode = plan.getProductCode();
+                color = plan.getColor();
+                size = plan.getSize();
             }
         }
 
@@ -256,6 +260,8 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
                 .batchNo(task.getBatchNo())
                 .productName(productName)
                 .productCode(productCode)
+                .color(color)
+                .size(size)
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())

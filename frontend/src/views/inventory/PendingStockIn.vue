@@ -39,6 +39,16 @@
             {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
         </el-table-column>
+        <el-table-column prop="color" label="颜色" width="100" align="center">
+          <template #default="{ row }">
+            {{ row.color || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="size" label="尺码" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.size || '-' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="完成数量" width="100" align="center">
           <template #default="{ row }">
@@ -62,14 +72,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="单位" width="60" align="center" />
-        <el-table-column prop="startDate" label="开始日期" width="120" align="center">
+        <el-table-column prop="taskStartDate" label="开始日期" width="160" align="center">
           <template #default="{ row }">
-            {{ formatDate(row.startDate) }}
+            {{ formatDateTime(row.taskStartDate || row.startDate) }}
           </template>
         </el-table-column>
-        <el-table-column prop="endDate" label="结束日期" width="120" align="center">
+        <el-table-column prop="taskEndDate" label="结束日期" width="160" align="center">
           <template #default="{ row }">
-            {{ formatDate(row.endDate) }}
+            {{ formatDateTime(row.taskEndDate || row.endDate) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
@@ -109,6 +119,12 @@
         </el-form-item>
         <el-form-item label="产品名称">
           <el-input :model-value="`${currentPlan.productName}${currentPlan.productCode ? '-' + currentPlan.productCode : ''}`" disabled />
+        </el-form-item>
+        <el-form-item label="颜色">
+          <el-input :model-value="currentPlan.color || '-'" disabled />
+        </el-form-item>
+        <el-form-item label="尺码">
+          <el-input :model-value="currentPlan.size || '-'" disabled />
         </el-form-item>
         <el-form-item label="计划数量">
           <el-input :model-value="`${currentPlan.quantity} ${currentPlan.unit}`" disabled />
@@ -168,6 +184,8 @@ const currentPlan = reactive({
   batchNo: '',
   productName: '',
   productCode: '',
+  color: '',
+  size: '',
   quantity: 0,
   completedQuantity: 0,
   stockedInQuantity: 0,
@@ -245,11 +263,24 @@ function formatDate(dateStr) {
   return `${year}-${month}-${day}`
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}`
+}
+
 function handleStockIn(row) {
   currentPlan.id = row.id
   currentPlan.batchNo = row.batchNo
   currentPlan.productName = row.productName
   currentPlan.productCode = row.productCode
+  currentPlan.color = row.color || ''
+  currentPlan.size = row.size || ''
   currentPlan.quantity = row.quantity
   currentPlan.completedQuantity = row.completedQuantity
   currentPlan.stockedInQuantity = row.stockedInQuantity || 0

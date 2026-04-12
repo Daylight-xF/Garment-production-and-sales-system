@@ -76,6 +76,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setEndDate(request.getEndDate());
         plan.setStatus("PENDING");
         plan.setDescription(request.getDescription());
+        plan.setColor(request.getColor());
+        plan.setSize(request.getSize());
         plan.setCreateBy(userId);
         plan.setMaterialsDeducted(true);
 
@@ -285,6 +287,12 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         if (request.getDescription() != null) {
             plan.setDescription(request.getDescription());
         }
+        if (request.getColor() != null) {
+            plan.setColor(request.getColor());
+        }
+        if (request.getSize() != null) {
+            plan.setSize(request.getSize());
+        }
 
         ProductionPlan saved = productionPlanRepository.save(plan);
         return convertToVO(saved);
@@ -405,6 +413,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         task.setBatchNo(plan.getBatchNo());
         task.setProductName(plan.getProductName());
         task.setProductCode(plan.getProductCode());
+        task.setColor(plan.getColor());
+        task.setSize(plan.getSize());
         task.setTaskName(plan.getBatchNo() + "-生产任务");
         task.setProgress(0);
         task.setStatus("PENDING");
@@ -474,6 +484,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .batchNo(task.getBatchNo())
                 .productName(task.getProductName())
                 .productCode(task.getProductCode())
+                .color(task.getColor())
+                .size(task.getSize())
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())
@@ -498,6 +510,22 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                     .orElse(null);
         }
 
+        Date taskStartDate = null;
+        Date taskEndDate = null;
+        List<ProductionTask> tasks = productionTaskRepository.findByPlanId(plan.getId());
+        if (tasks != null && !tasks.isEmpty()) {
+            taskStartDate = tasks.stream()
+                    .map(ProductionTask::getStartDate)
+                    .filter(java.util.Objects::nonNull)
+                    .min(Date::compareTo)
+                    .orElse(null);
+            taskEndDate = tasks.stream()
+                    .map(ProductionTask::getEndDate)
+                    .filter(java.util.Objects::nonNull)
+                    .max(Date::compareTo)
+                    .orElse(null);
+        }
+
         return PlanVO.builder()
                 .id(plan.getId())
                 .batchNo(plan.getBatchNo())
@@ -512,6 +540,10 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .endDate(plan.getEndDate())
                 .status(plan.getStatus())
                 .description(plan.getDescription())
+                .color(plan.getColor())
+                .size(plan.getSize())
+                .taskStartDate(taskStartDate)
+                .taskEndDate(taskEndDate)
                 .createBy(plan.getCreateBy())
                 .createByName(createByName)
                 .materialsDeducted(plan.getMaterialsDeducted())

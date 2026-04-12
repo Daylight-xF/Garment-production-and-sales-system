@@ -18,6 +18,8 @@ public class TaskVO {
     private String batchNo;
     private String productName;
     private String productCode;
+    private String color;
+    private String size;
     private String taskName;
     private String assignee;
     private String assigneeName;

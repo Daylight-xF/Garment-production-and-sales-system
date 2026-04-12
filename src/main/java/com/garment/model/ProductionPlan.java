@@ -41,6 +41,10 @@ public class ProductionPlan {
 
     private String status;
 
+    private String color;
+
+    private String size;
+
     private String description;
 
     private String createBy;

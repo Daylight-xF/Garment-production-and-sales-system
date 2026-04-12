@@ -40,6 +40,12 @@
             <span>{{ plan.productName }}{{ plan.productCode ? '-' + plan.productCode : '' }}</span>
           </div>
           <div class="plan-info-row">
+            <span class="label">颜色：</span>
+            <span>{{ plan.color || '-' }}</span>
+            <span class="label" style="margin-left: 20px;">尺码：</span>
+            <el-tag size="small">{{ plan.size || '-' }}</el-tag>
+          </div>
+          <div class="plan-info-row">
             <span class="label">总体进度：</span>
             <span>{{ plan.completedQuantity || 0 }} / {{ plan.quantity || 0 }} {{ plan.unit || '' }}</span>
           </div>
@@ -56,6 +62,16 @@
 
         <el-table :data="getTasksByPlanId(plan.id)" size="small" border>
           <el-table-column prop="taskName" label="任务名称" min-width="120" />
+          <el-table-column prop="color" label="颜色" width="90" align="center">
+            <template #default="{ row }">
+              {{ row.color || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="size" label="尺码" width="70" align="center">
+            <template #default="{ row }">
+              <el-tag size="small">{{ row.size || '-' }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="assigneeName" label="分配人" width="100" align="center">
             <template #default="{ row }">
               {{ row.assigneeName || '未分配' }}

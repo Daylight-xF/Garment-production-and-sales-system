@@ -21,5 +21,9 @@ public class PlanUpdateRequest {
 
     private Date endDate;
 
+    private String color;
+
+    private String size;
+
     private String description;
 }

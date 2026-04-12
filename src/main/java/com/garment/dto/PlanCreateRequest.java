@@ -24,5 +24,11 @@ public class PlanCreateRequest {
 
     private Date endDate;
 
+    @NotBlank(message = "颜色不能为空")
+    private String color;
+
+    @NotBlank(message = "尺码不能为空")
+    private String size;
+
     private String description;
 }

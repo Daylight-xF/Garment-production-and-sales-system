@@ -27,6 +27,10 @@ public class ProductionTask {
 
     private String productCode;
 
+    private String color;
+
+    private String size;
+
     private String taskName;
 
     private String assignee;

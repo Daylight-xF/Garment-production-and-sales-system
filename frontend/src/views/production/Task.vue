@@ -38,6 +38,16 @@
             {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
         </el-table-column>
+        <el-table-column prop="color" label="颜色" width="100" align="center">
+          <template #default="{ row }">
+            {{ row.color || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="size" label="尺码" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.size || '-' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="assigneeName" label="分配人" width="100" align="center">
           <template #default="{ row }">
             {{ row.assigneeName || '未分配' }}

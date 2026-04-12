@@ -43,6 +43,16 @@
             {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
         </el-table-column>
+        <el-table-column prop="color" label="颜色" width="100" align="center">
+          <template #default="{ row }">
+            {{ row.color || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="size" label="尺码" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.size || '-' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
         <el-table-column prop="startDate" label="计划开始日期" width="110">
@@ -178,6 +188,30 @@
           </el-descriptions>
         </el-card>
 
+        <el-form-item label="颜色" prop="color">
+          <el-input
+            v-model="planForm.color"
+            placeholder="请输入颜色（如：红色、深蓝色）"
+            :disabled="isEditApproved"
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="尺码" prop="size">
+          <el-select
+            v-model="planForm.size"
+            placeholder="请选择尺码"
+            style="width: 100%"
+            :disabled="isEditApproved"
+          >
+            <el-option
+              v-for="item in sizeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="计划数量" prop="quantity">
           <el-input-number v-model="planForm.quantity" :min="quantityMin" style="width: 100%" />
         </el-form-item>
@@ -405,6 +439,8 @@ const planForm = reactive({
   productName: '',
   quantity: 1,
   unit: '件',
+  color: '',
+  size: '',
   startDate: '',
   endDate: '',
   description: ''
@@ -440,9 +476,24 @@ const calculatedProgress = computed(() => {
 
 const router = useRouter()
 
+const sizeOptions = [
+  { label: 'XS', value: 'XS' },
+  { label: 'S', value: 'S' },
+  { label: 'M', value: 'M' },
+  { label: 'L', value: 'L' },
+  { label: 'XL', value: 'XL' },
+  { label: 'XXL', value: 'XXL' },
+  { label: 'XXXL', value: 'XXXL' }
+]
+
 const planFormRules = {
   batchNo: [{ required: true, message: '请输入批次号', trigger: 'blur' }],
   productDefinitionId: [{ required: true, message: '请选择产品定义', trigger: 'change' }],
+  color: [
+    { required: true, message: '请输入颜色', trigger: 'blur' },
+    { max: 50, message: '颜色长度不能超过50个字符', trigger: 'blur' }
+  ],
+  size: [{ required: true, message: '请选择尺码', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入计划数量', trigger: 'blur' }]
 }
 
@@ -528,6 +579,8 @@ function handleAdd() {
     productName: '',
     quantity: 1,
     unit: '件',
+    color: '',
+    size: '',
     startDate: '',
     endDate: '',
     description: ''
@@ -545,6 +598,8 @@ function handleEdit(row) {
     productName: row.productName || '',
     quantity: row.quantity,
     unit: row.unit || '件',
+    color: row.color || '',
+    size: row.size || '',
     startDate: row.startDate ? row.startDate.substring(0, 10) : '',
     endDate: row.endDate ? row.endDate.substring(0, 10) : '',
     description: row.description || ''
@@ -588,7 +643,9 @@ async function handleSubmit() {
           unit: planForm.unit,
           startDate: planForm.startDate,
           endDate: planForm.endDate,
-          description: planForm.description
+          description: planForm.description,
+          color: planForm.color,
+          size: planForm.size
         } : { ...planForm }
         await updatePlan(currentPlan.value.id, submitData)
         ElMessage.success('编辑计划成功')
