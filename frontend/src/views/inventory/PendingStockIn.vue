@@ -47,6 +47,20 @@
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="已入库" width="90" align="center">
+          <template #default="{ row }">
+            <span style="color: #409EFF;">
+              {{ row.stockedInQuantity || 0 }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="剩余" width="90" align="center">
+          <template #default="{ row }">
+            <span :style="{ color: (row.completedQuantity - (row.stockedInQuantity || 0)) > 0 ? '#F56C6C' : '#909399', fontWeight: 'bold' }">
+              {{ row.completedQuantity - (row.stockedInQuantity || 0) }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column prop="unit" label="单位" width="60" align="center" />
         <el-table-column prop="startDate" label="开始日期" width="120" align="center">
           <template #default="{ row }">
@@ -102,14 +116,20 @@
         <el-form-item label="完成数量">
           <el-input :model-value="`${currentPlan.completedQuantity} ${currentPlan.unit}`" disabled />
         </el-form-item>
+        <el-form-item label="已入库数量">
+          <el-input :model-value="`${currentPlan.stockedInQuantity} ${currentPlan.unit}`" disabled />
+        </el-form-item>
         <el-divider content-position="left">入库信息</el-divider>
         <el-form-item label="入库数量" prop="quantity">
           <el-input-number
             v-model="stockInForm.quantity"
             :min="1"
-            :max="currentPlan.completedQuantity"
+            :max="(currentPlan.completedQuantity - currentPlan.stockedInQuantity)"
             style="width: 100%"
           />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            剩余可入库数量：{{ currentPlan.completedQuantity - currentPlan.stockedInQuantity }} {{ currentPlan.unit }}
+          </div>
         </el-form-item>
         <el-form-item label="存放位置" prop="location">
           <el-input v-model="stockInForm.location" placeholder="请输入存放位置，如：A区-01-03" />
@@ -150,6 +170,7 @@ const currentPlan = reactive({
   productCode: '',
   quantity: 0,
   completedQuantity: 0,
+  stockedInQuantity: 0,
   unit: ''
 })
 
@@ -231,11 +252,16 @@ function handleStockIn(row) {
   currentPlan.productCode = row.productCode
   currentPlan.quantity = row.quantity
   currentPlan.completedQuantity = row.completedQuantity
+  currentPlan.stockedInQuantity = row.stockedInQuantity || 0
   currentPlan.unit = row.unit
 
-  stockInForm.quantity = row.completedQuantity
+  const remainingQuantity = currentPlan.completedQuantity - currentPlan.stockedInQuantity
+  stockInForm.quantity = remainingQuantity
   stockInForm.location = ''
   stockInForm.remark = ''
+
+  console.log('入库信息 - 批次:', currentPlan.batchNo, '完成数量:', currentPlan.completedQuantity,
+              '已入库数量:', currentPlan.stockedInQuantity, '剩余可入库:', remainingQuantity)
 
   stockInDialogVisible.value = true
 }
@@ -249,6 +275,14 @@ async function handleSubmitStockIn() {
 
     submitLoading.value = true
     try {
+      console.log('提交入库数据:', {
+        itemType: 'FINISHED_PRODUCT',
+        itemId: currentPlan.id,
+        quantity: stockInForm.quantity,
+        batchNo: currentPlan.batchNo,
+        productName: currentPlan.productName
+      })
+
       const data = {
         itemType: 'FINISHED_PRODUCT',
         itemId: currentPlan.id,
@@ -256,13 +290,46 @@ async function handleSubmitStockIn() {
         reason: `生产批次${currentPlan.batchNo}入库 | 位置:${stockInForm.location} | ${stockInForm.remark}`
       }
 
-      await stockIn(data)
+      const response = await stockIn(data)
+      console.log('入库成功响应:', response)
 
-      ElMessage.success(`批次 [${currentPlan.batchNo}] 入库成功，数量：${stockInForm.quantity} ${currentPlan.unit}`)
+      ElMessage.success({
+        message: `✅ 批次 [${currentPlan.batchNo}] 入库成功！\n产品：${currentPlan.productName}\n数量：${stockInForm.quantity} ${currentPlan.unit}`,
+        duration: 5000,
+        showClose: true
+      })
       stockInDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '入库失败')
+      console.error('入库失败详情:', error)
+
+      const errorMessage = error.response?.data?.message || error.message || '入库失败'
+
+      if (errorMessage.includes('生产计划不存在')) {
+        ElMessage.error({
+          message: `❌ 入库失败：生产计划不存在\n\n可能原因：\n1. 生产计划已被删除\n2. 系统数据异常\n\n请刷新页面后重试`,
+          duration: 8000,
+          showClose: true
+        })
+      } else if (errorMessage.includes('未完成')) {
+        ElMessage.error({
+          message: `⚠️ 入库失败：${errorMessage}\n\n提示：只有"已完成"状态的生产计划才能入库`,
+          duration: 6000,
+          showClose: true
+        })
+      } else if (errorMessage.includes('成品不存在') || errorMessage.includes('原材料不存在')) {
+        ElMessage.error({
+          message: `❌ 入库失败：${errorMessage}\n\n这是一个系统错误，请联系管理员`,
+          duration: 6000,
+          showClose: true
+        })
+      } else {
+        ElMessage.error({
+          message: `❌ 入库失败：${errorMessage}`,
+          duration: 5000,
+          showClose: true
+        })
+      }
     } finally {
       submitLoading.value = false
     }

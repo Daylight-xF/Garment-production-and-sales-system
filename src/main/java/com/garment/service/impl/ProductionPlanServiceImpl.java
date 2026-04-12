@@ -199,7 +199,13 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                     if (StringUtils.hasText(status)) {
                         matchStatus = status.equals(plan.getStatus());
                     }
-                    return matchKeyword && matchStatus;
+                    boolean hasRemainingStock = true;
+                    if ("COMPLETED".equals(status)) {
+                        int stockedIn = plan.getStockedInQuantity() != null ? plan.getStockedInQuantity() : 0;
+                        int completed = plan.getCompletedQuantity() != null ? plan.getCompletedQuantity() : 0;
+                        hasRemainingStock = stockedIn < completed;
+                    }
+                    return matchKeyword && matchStatus && hasRemainingStock;
                 })
                 .collect(Collectors.toList());
 
@@ -500,6 +506,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .productName(plan.getProductName())
                 .quantity(plan.getQuantity())
                 .completedQuantity(plan.getCompletedQuantity())
+                .stockedInQuantity(plan.getStockedInQuantity() != null ? plan.getStockedInQuantity() : 0)
                 .unit(plan.getUnit())
                 .startDate(plan.getStartDate())
                 .endDate(plan.getEndDate())

@@ -20,6 +20,9 @@ public class PlanVO {
     private String productName;
     private Integer quantity;
     private Integer completedQuantity;
+
+    private Integer stockedInQuantity = 0;
+
     private String unit;
     private Date startDate;
     private Date endDate;

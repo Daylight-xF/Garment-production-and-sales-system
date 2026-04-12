@@ -5,6 +5,7 @@ import com.garment.exception.BusinessException;
 import com.garment.model.*;
 import com.garment.repository.*;
 import com.garment.service.InventoryService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -16,22 +17,26 @@ import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class InventoryServiceImpl implements InventoryService {
 
     private final RawMaterialRepository rawMaterialRepository;
     private final FinishedProductRepository finishedProductRepository;
+    private final ProductionPlanRepository productionPlanRepository;
     private final InventoryRecordRepository inventoryRecordRepository;
     private final InventoryAlertRepository inventoryAlertRepository;
     private final UserRepository userRepository;
 
     public InventoryServiceImpl(RawMaterialRepository rawMaterialRepository,
                                  FinishedProductRepository finishedProductRepository,
+                                 ProductionPlanRepository productionPlanRepository,
                                  InventoryRecordRepository inventoryRecordRepository,
                                  InventoryAlertRepository inventoryAlertRepository,
                                  UserRepository userRepository) {
         this.rawMaterialRepository = rawMaterialRepository;
         this.finishedProductRepository = finishedProductRepository;
+        this.productionPlanRepository = productionPlanRepository;
         this.inventoryRecordRepository = inventoryRecordRepository;
         this.inventoryAlertRepository = inventoryAlertRepository;
         this.userRepository = userRepository;
@@ -211,21 +216,63 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public InventoryRecordVO stockIn(StockInOutRequest request, String operatorId) {
+        log.info("开始入库操作 - 类型: {}, 物品ID: {}, 数量: {}, 操作人: {}",
+                request.getItemType(), request.getItemId(), request.getQuantity(), operatorId);
+
         String itemName = "";
         if ("RAW_MATERIAL".equals(request.getItemType())) {
             RawMaterial material = rawMaterialRepository.findById(request.getItemId())
-                    .orElseThrow(() -> new BusinessException("原材料不存在"));
+                    .orElseThrow(() -> {
+                        log.error("原材料不存在，ID: {}", request.getItemId());
+                        return new BusinessException("原材料不存在，ID: " + request.getItemId());
+                    });
             material.setQuantity(material.getQuantity() + request.getQuantity());
             rawMaterialRepository.save(material);
             itemName = material.getName();
+            log.info("原材料入库成功 - 名称: {}, 新库存: {}", itemName, material.getQuantity());
         } else if ("FINISHED_PRODUCT".equals(request.getItemType())) {
-            FinishedProduct product = finishedProductRepository.findById(request.getItemId())
-                    .orElseThrow(() -> new BusinessException("成品不存在"));
+            log.info("成品入库 - 查找生产计划，ID: {}", request.getItemId());
+
+            ProductionPlan plan = productionPlanRepository.findById(request.getItemId())
+                    .orElseThrow(() -> {
+                        log.error("生产计划不存在，ID: {}", request.getItemId());
+                        return new BusinessException("生产计划不存在，ID: " + request.getItemId());
+                    });
+
+            log.info("找到生产计划 - 批次号: {}, 产品名: {}, 状态: {}",
+                    plan.getBatchNo(), plan.getProductName(), plan.getStatus());
+
+            if (!"COMPLETED".equals(plan.getStatus())) {
+                log.error("生产计划未完成，无法入库 - 计划ID: {}, 当前状态: {}",
+                        plan.getId(), plan.getStatus());
+                throw new BusinessException("生产计划尚未完成，无法入库。当前状态: " + plan.getStatus());
+            }
+
+            FinishedProduct product = findOrCreateFinishedProduct(plan);
+            int oldQuantity = product.getQuantity();
             product.setQuantity(product.getQuantity() + request.getQuantity());
+
+            if (request.getReason() != null && request.getReason().contains("位置:")) {
+                String location = extractLocation(request.getReason());
+                if (location != null && !location.isEmpty()) {
+                    product.setLocation(location);
+                    log.info("更新成品存放位置: {}", location);
+                }
+            }
+
             finishedProductRepository.save(product);
             itemName = product.getName();
+
+            int oldStockedInQuantity = plan.getStockedInQuantity() != null ? plan.getStockedInQuantity() : 0;
+            plan.setStockedInQuantity(oldStockedInQuantity + request.getQuantity());
+            productionPlanRepository.save(plan);
+
+            log.info("成品入库成功 - 名称: {}, 成品ID: {}, 入库数量: {}, 旧库存: {}, 新库存: {}, 计划已入库: {}/{}",
+                    itemName, product.getId(), request.getQuantity(), oldQuantity, product.getQuantity(),
+                    plan.getStockedInQuantity(), plan.getCompletedQuantity());
         } else {
-            throw new BusinessException("无效的物品类型");
+            log.error("无效的物品类型: {}", request.getItemType());
+            throw new BusinessException("无效的物品类型: " + request.getItemType());
         }
 
         String operatorName = getOperatorName(operatorId);
@@ -241,6 +288,9 @@ public class InventoryServiceImpl implements InventoryService {
         record.setReason(request.getReason());
 
         InventoryRecord saved = inventoryRecordRepository.save(record);
+        log.info("入库记录已保存 - 记录ID: {}, 物品: {}, 数量: {}",
+                saved.getId(), itemName, request.getQuantity());
+
         return convertToInventoryRecordVO(saved);
     }
 
@@ -405,6 +455,42 @@ public class InventoryServiceImpl implements InventoryService {
         return userRepository.findById(operatorId)
                 .map(User::getRealName)
                 .orElse("");
+    }
+
+    private FinishedProduct findOrCreateFinishedProduct(ProductionPlan plan) {
+        String searchName = plan.getProductName();
+        String searchCode = plan.getProductCode();
+
+        List<FinishedProduct> existing = finishedProductRepository.findAll().stream()
+                .filter(p -> p.getName() != null && p.getName().equals(searchName))
+                .filter(p -> searchCode == null ||
+                        (p.getProductCode() != null && p.getProductCode().equals(searchCode)))
+                .collect(Collectors.toList());
+
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+
+        FinishedProduct newProduct = new FinishedProduct();
+        newProduct.setProductCode(searchCode);
+        newProduct.setName(searchName);
+        newProduct.setQuantity(0);
+        newProduct.setUnit(plan.getUnit());
+        newProduct.setDescription("自动创建 - 来源: " + plan.getBatchNo());
+
+        return finishedProductRepository.save(newProduct);
+    }
+
+    private String extractLocation(String reason) {
+        if (reason == null || !reason.contains("位置:")) {
+            return null;
+        }
+        int startIndex = reason.indexOf("位置:") + 3;
+        int endIndex = reason.indexOf(" |", startIndex);
+        if (endIndex == -1) {
+            endIndex = reason.length();
+        }
+        return reason.substring(startIndex, endIndex).trim();
     }
 
     private RawMaterialVO convertToRawMaterialVO(RawMaterial material) {

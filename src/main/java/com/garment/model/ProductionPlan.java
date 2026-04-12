@@ -31,6 +31,8 @@ public class ProductionPlan {
 
     private Integer completedQuantity = 0;
 
+    private Integer stockedInQuantity = 0;
+
     private String unit;
 
     private Date startDate;
