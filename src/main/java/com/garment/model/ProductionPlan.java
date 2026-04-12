@@ -41,6 +41,8 @@ public class ProductionPlan {
 
     private String createBy;
 
+    private Boolean materialsDeducted = false;
+
     @CreatedDate
     private Date createTime;
 

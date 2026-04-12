@@ -33,7 +33,7 @@
 
       <el-table :data="taskList" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="taskName" label="任务名称" min-width="120" />
-        <el-table-column prop="planName" label="关联计划" min-width="120" />
+        <el-table-column prop="productName" label="产品名称" min-width="120" />
         <el-table-column prop="assigneeName" label="分配人" width="100" align="center">
           <template #default="{ row }">
             {{ row.assigneeName || '未分配' }}
@@ -56,12 +56,20 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="startDate" label="开始日期" width="110" />
-        <el-table-column prop="endDate" label="结束日期" width="110" />
+        <el-table-column prop="startDate" label="开始日期" width="160">
+          <template #default="{ row }">
+            {{ formatDateTime(row.startDate) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="endDate" label="结束日期" width="160">
+          <template #default="{ row }">
+            {{ formatDateTime(row.endDate) }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleAssign(row)">分配</el-button>
-            <el-button type="success" link size="small" @click="handleProgress(row)">更新进度</el-button>
+            <el-button v-if="row.status !== 'COMPLETED'" type="primary" link size="small" @click="handleAssign(row)">分配</el-button>
+            <el-button v-if="row.status !== 'COMPLETED' && row.assignee" type="success" link size="small" @click="handleProgress(row)">更新进度</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -108,16 +116,40 @@
 
     <el-dialog
       v-model="progressDialogVisible"
-      title="更新进度"
+      title="更新任务进度"
       width="450px"
       destroy-on-close
     >
-      <el-form label-width="80px">
+      <el-form label-width="100px">
         <el-form-item label="任务名称">
           <span>{{ currentTask.taskName }}</span>
         </el-form-item>
+        <el-form-item label="计划数量">
+          <el-input :model-value="currentTask.planQuantity || 0" disabled size="small" />
+          <div class="quantity-hint">（只读，不可修改）</div>
+        </el-form-item>
+        <el-form-item label="已完成数量">
+          <el-input-number
+            v-model="newCompletedQuantity"
+            :min="(currentTask.completedQuantity || 0)"
+            :max="currentTask.planQuantity || 999999"
+            :precision="0"
+            step="1"
+            size="small"
+            style="width: 100%"
+          />
+          <div class="quantity-hint">最小值：{{ currentTask.completedQuantity || 0 }}，最大值：{{ currentTask.planQuantity || '-' }}</div>
+        </el-form-item>
         <el-form-item label="当前进度">
-          <el-slider v-model="progressForm.progress" :min="0" :max="100" show-input />
+          <el-progress
+            :percentage="calculatedProgress"
+            :status="calculatedProgress === 100 ? 'success' : ''"
+            :show-text="false"
+          />
+          <div class="progress-text">
+            {{ newCompletedQuantity }} / {{ currentTask.planQuantity || 0 }}
+            <span class="progress-pct">{{ calculatedProgress }}%</span>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -129,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getTaskList, assignTask, updateTaskProgress } from '../../api/production'
 import { getAssignableUsers } from '../../api/user'
@@ -157,8 +189,11 @@ const assignForm = reactive({
   assignee: ''
 })
 
-const progressForm = reactive({
-  progress: 0
+const newCompletedQuantity = ref(0)
+
+const calculatedProgress = computed(() => {
+  if (!currentTask.value.planQuantity || currentTask.value.planQuantity <= 0) return 0
+  return Math.round((newCompletedQuantity.value / currentTask.value.planQuantity) * 100)
 })
 
 onMounted(() => {
@@ -234,19 +269,19 @@ async function handleAssignSubmit() {
 
 function handleProgress(row) {
   currentTask.value = row
-  progressForm.progress = row.progress || 0
+  newCompletedQuantity.value = row.completedQuantity || 0
   progressDialogVisible.value = true
 }
 
 async function handleProgressSubmit() {
   submitLoading.value = true
   try {
-    await updateTaskProgress(currentTask.value.id, { progress: progressForm.progress })
+    await updateTaskProgress(currentTask.value.id, { progress: calculatedProgress.value })
     ElMessage.success('进度更新成功')
     progressDialogVisible.value = false
     fetchTaskList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '更新进度失败')
+    ElMessage.error(error.message || '更新进度失败')
   } finally {
     submitLoading.value = false
   }
@@ -268,6 +303,17 @@ function taskStatusText(status) {
     COMPLETED: '已完成'
   }
   return map[status] || status
+}
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}`
 }
 </script>
 
@@ -296,5 +342,25 @@ function taskStatusText(status) {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+.quantity-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #606266;
+  padding-left: 4px;
+}
+.progress-pct {
+  font-weight: 600;
+  color: #409eff;
+  min-width: 50px;
+  text-align: right;
 }
 </style>

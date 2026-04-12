@@ -60,7 +60,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="row.status !== 'COMPLETED'" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status === 'PENDING'"
               type="success"
@@ -90,7 +90,7 @@
               @click="handleCompletePlan(row)"
             >完成确认</el-button>
             <el-button
-              v-if="row.status === 'PENDING' || row.status === 'CANCELLED'"
+              v-if="row.status === 'CANCELLED'"
               type="danger"
               link
               size="small"
@@ -126,7 +126,15 @@
         label-width="100px"
       >
         <el-form-item label="计划名称" prop="planName">
-          <el-input v-model="planForm.planName" placeholder="请输入计划名称" />
+          <el-input
+            v-model="planForm.planName"
+            placeholder="请输入计划名称"
+            :disabled="isEditApproved"
+          >
+            <template v-if="isEditApproved" #prefix>
+              <el-icon><Lock /></el-icon>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item label="选择产品" prop="productDefinitionId">
           <el-select
@@ -134,6 +142,7 @@
             filterable
             placeholder="请选择产品定义"
             style="width: 100%"
+            :disabled="isEditApproved"
             @change="handleProductChange"
           >
             <el-option
@@ -166,7 +175,7 @@
         </el-card>
 
         <el-form-item label="计划数量" prop="quantity">
-          <el-input-number v-model="planForm.quantity" :min="1" style="width: 100%" />
+          <el-input-number v-model="planForm.quantity" :min="quantityMin" style="width: 100%" />
         </el-form-item>
         <el-form-item label="开始日期" prop="startDate">
           <el-date-picker
@@ -291,22 +300,15 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'PENDING'"
+              v-if="row.status === 'PENDING' && row.status !== 'COMPLETED'"
               type="primary"
               link
               size="small"
               @click="handleAssignTaskInDialog(row)"
             >分配</el-button>
-            <el-button
-              v-if="row.status !== 'COMPLETED'"
-              type="warning"
-              link
-              size="small"
-              @click="handleUpdateProgressInDialog(row)"
-            >更新进度</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -320,18 +322,39 @@
     <el-dialog
       v-model="progressDialogVisible"
       title="更新任务进度"
-      width="400px"
+      width="450px"
       destroy-on-close
     >
-      <el-form label-width="80px">
-        <el-form-item label="当前任务">
+      <el-form label-width="100px">
+        <el-form-item label="任务名称">
           <span>{{ currentTask.taskName }}</span>
         </el-form-item>
-        <el-form-item label="当前进度">
-          <span>{{ currentTask.progress || 0 }}%</span>
+        <el-form-item label="计划数量">
+          <el-input :model-value="currentTask.planQuantity || 0" disabled size="small" />
+          <div class="quantity-hint">（只读，不可修改）</div>
         </el-form-item>
-        <el-form-item label="新进度">
-          <el-slider v-model="newProgress" :min="0" :max="100" show-input />
+        <el-form-item label="已完成数量">
+          <el-input-number
+            v-model="newCompletedQuantity"
+            :min="(currentTask.completedQuantity || 0)"
+            :max="currentTask.planQuantity || 999999"
+            :precision="0"
+            step="1"
+            size="small"
+            style="width: 100%"
+          />
+          <div class="quantity-hint">最小值：{{ currentTask.completedQuantity || 0 }}，最大值：{{ currentTask.planQuantity || '-' }}</div>
+        </el-form-item>
+        <el-form-item label="当前进度">
+          <el-progress
+            :percentage="calculatedProgress"
+            :status="calculatedProgress === 100 ? 'success' : ''"
+            :show-text="false"
+          />
+          <div class="progress-text">
+            {{ newCompletedQuantity }} / {{ currentTask.planQuantity || 0 }}
+            <span class="progress-pct">{{ calculatedProgress }}%</span>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -343,8 +366,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Lock } from '@element-plus/icons-vue'
 import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan, startProduction, completePlan, getPlanTasks, updateTaskProgress } from '../../api/production'
 import { getProductDefinitionList } from '../../api/productDefinition'
 
@@ -355,6 +380,7 @@ const dialogVisible = ref(false)
 const approveDialogVisible = ref(false)
 const dialogType = ref('add')
 const currentPlan = ref({})
+const originalQuantity = ref(0)
 const planFormRef = ref(null)
 const productDefinitionList = ref([])
 
@@ -380,6 +406,17 @@ const planForm = reactive({
   description: ''
 })
 
+const isEditApproved = computed(() => {
+  return dialogType.value === 'edit' && (currentPlan.value?.status === 'APPROVED' || currentPlan.value?.status === 'IN_PROGRESS')
+})
+
+const quantityMin = computed(() => {
+  if (dialogType.value === 'edit' && currentPlan.value?.status === 'IN_PROGRESS') {
+    return currentPlan.value.completedQuantity || 0
+  }
+  return 1
+})
+
 const approveForm = reactive({
   status: 'APPROVED',
   remark: ''
@@ -390,7 +427,14 @@ const loadingTasks = ref(false)
 const planTaskList = ref([])
 const progressDialogVisible = ref(false)
 const currentTask = ref({})
-const newProgress = ref(0)
+const newCompletedQuantity = ref(0)
+
+const calculatedProgress = computed(() => {
+  if (!currentTask.value.planQuantity || currentTask.value.planQuantity <= 0) return 0
+  return Math.round((newCompletedQuantity.value / currentTask.value.planQuantity) * 100)
+})
+
+const router = useRouter()
 
 const planFormRules = {
   planName: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
@@ -476,6 +520,7 @@ function handleAdd() {
 function handleEdit(row) {
   dialogType.value = 'edit'
   currentPlan.value = row
+  originalQuantity.value = row.quantity || 0
   Object.assign(planForm, {
     planName: row.planName,
     productDefinitionId: row.productDefinitionId || '',
@@ -494,13 +539,40 @@ async function handleSubmit() {
   if (!form) return
   await form.validate(async (valid) => {
     if (!valid) return
+
+    if (dialogType.value === 'edit' && isEditApproved.value) {
+      const qtyDiff = planForm.quantity - originalQuantity.value
+      if (qtyDiff !== 0) {
+        const actionText = qtyDiff > 0 ? '扣减' : '返还'
+        const diffText = Math.abs(qtyDiff)
+        try {
+          await ElMessageBox.confirm(
+            `计划数量将从 ${originalQuantity.value} 修改为 ${planForm.quantity}（${qtyDiff > 0 ? '增加' : '减少'} ${diffText} 单位）<br/>` +
+            `系统将自动${actionText}相应数量的原材料库存。<br/>` +
+            `<span style="color: #E6A23C">请确认是否继续？</span>`,
+            '数量变更确认',
+            { confirmButtonText: '确认保存', cancelButtonText: '取消', type: 'warning', dangerouslyUseHTMLString: true }
+          )
+        } catch (error) {
+          return
+        }
+      }
+    }
+
     submitLoading.value = true
     try {
       if (dialogType.value === 'add') {
         await createPlan(planForm)
         ElMessage.success('新增计划成功')
       } else {
-        await updatePlan(currentPlan.value.id, planForm)
+        const submitData = isEditApproved.value ? {
+          quantity: planForm.quantity,
+          unit: planForm.unit,
+          startDate: planForm.startDate,
+          endDate: planForm.endDate,
+          description: planForm.description
+        } : { ...planForm }
+        await updatePlan(currentPlan.value.id, submitData)
         ElMessage.success('编辑计划成功')
       }
       dialogVisible.value = false
@@ -608,7 +680,7 @@ async function handleCompletePlan(row) {
 }
 
 function goToTaskPage() {
-  window.location.href = '/#/production/task'
+  router.push('/production/task')
 }
 
 function handleAssignTaskInDialog(row) {
@@ -618,14 +690,14 @@ function handleAssignTaskInDialog(row) {
 
 function handleUpdateProgressInDialog(row) {
   currentTask.value = row
-  newProgress.value = row.progress || 0
+  newCompletedQuantity.value = row.completedQuantity || 0
   progressDialogVisible.value = true
 }
 
 async function handleSubmitProgress() {
   submitLoading.value = true
   try {
-    await updateTaskProgress(currentTask.value.id, { progress: newProgress.value })
+    await updateTaskProgress(currentTask.value.id, { progress: calculatedProgress.value })
     ElMessage.success('进度更新成功')
     progressDialogVisible.value = false
     handleViewTasks(currentPlan.value)
@@ -746,5 +818,25 @@ function disabledEndDate(time) {
 }
 .stat-card.warning .stat-number {
   color: #e6a23c;
+}
+.quantity-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #606266;
+  padding-left: 4px;
+}
+.progress-pct {
+  font-weight: 600;
+  color: #409eff;
+  min-width: 50px;
+  text-align: right;
 }
 </style>

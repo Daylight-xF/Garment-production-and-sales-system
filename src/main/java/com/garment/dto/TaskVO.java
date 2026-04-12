@@ -16,6 +16,7 @@ public class TaskVO {
     private String id;
     private String planId;
     private String planName;
+    private String productName;
     private String taskName;
     private String assignee;
     private String assigneeName;

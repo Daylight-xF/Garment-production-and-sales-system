@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -146,6 +147,10 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
         task.setAssignee(assignee);
         task.setAssigneeName(assigneeUser.getRealName());
 
+        if (task.getStartDate() == null) {
+            task.setStartDate(new Date());
+        }
+
         if ("PENDING".equals(task.getStatus())) {
             task.setStatus("IN_PROGRESS");
         }
@@ -172,6 +177,9 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
 
         if (progress == 100) {
             task.setStatus("COMPLETED");
+            if (task.getEndDate() == null) {
+                task.setEndDate(new Date());
+            }
         } else if ("PENDING".equals(task.getStatus()) || "COMPLETED".equals(task.getStatus())) {
             task.setStatus("IN_PROGRESS");
         }
@@ -200,10 +208,19 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
     }
 
     private TaskVO convertToVO(ProductionTask task) {
+        String productName = "";
+        if (StringUtils.hasText(task.getPlanId())) {
+            ProductionPlan plan = productionPlanRepository.findById(task.getPlanId()).orElse(null);
+            if (plan != null) {
+                productName = plan.getProductName();
+            }
+        }
+
         return TaskVO.builder()
                 .id(task.getId())
                 .planId(task.getPlanId())
                 .planName(task.getPlanName())
+                .productName(productName)
                 .taskName(task.getTaskName())
                 .assignee(task.getAssignee())
                 .assigneeName(task.getAssigneeName())

@@ -26,6 +26,9 @@ public class PlanVO {
     private String description;
     private String createBy;
     private String createByName;
+
+    private Boolean materialsDeducted;
+
     private Date createTime;
     private Date updateTime;
 }

@@ -80,8 +80,22 @@ public class UserServiceImpl implements UserService {
         List<User> allUsers = userRepository.findAll();
         return allUsers.stream()
                 .filter(user -> user.getStatus() != null && user.getStatus() == 1)
+                .filter(user -> hasProductionRole(user))
                 .map(this::convertToVO)
                 .collect(Collectors.toList());
+    }
+
+    private boolean hasProductionRole(User user) {
+        if (user.getRoles() == null || user.getRoles().isEmpty()) {
+            return false;
+        }
+        for (String roleId : user.getRoles()) {
+            Role role = roleRepository.findById(roleId).orElse(null);
+            if (role != null && "production_manager".equals(role.getCode())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

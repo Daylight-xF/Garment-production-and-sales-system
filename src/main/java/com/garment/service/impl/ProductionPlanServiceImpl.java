@@ -3,16 +3,20 @@ package com.garment.service.impl;
 import com.garment.dto.PlanCreateRequest;
 import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.PlanVO;
+import com.garment.dto.StockInOutRequest;
 import com.garment.dto.TaskVO;
 import com.garment.exception.BusinessException;
 import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
 import com.garment.model.ProductionTask;
+import com.garment.model.RawMaterial;
 import com.garment.model.User;
 import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
 import com.garment.repository.ProductionTaskRepository;
+import com.garment.repository.RawMaterialRepository;
 import com.garment.repository.UserRepository;
+import com.garment.service.InventoryService;
 import com.garment.service.ProductionPlanService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -32,21 +36,29 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     private final UserRepository userRepository;
     private final ProductDefinitionRepository productDefinitionRepository;
     private final ProductionTaskRepository productionTaskRepository;
+    private final RawMaterialRepository rawMaterialRepository;
+    private final InventoryService inventoryService;
 
     public ProductionPlanServiceImpl(ProductionPlanRepository productionPlanRepository,
                                       UserRepository userRepository,
                                       ProductDefinitionRepository productDefinitionRepository,
-                                      ProductionTaskRepository productionTaskRepository) {
+                                      ProductionTaskRepository productionTaskRepository,
+                                      RawMaterialRepository rawMaterialRepository,
+                                      InventoryService inventoryService) {
         this.productionPlanRepository = productionPlanRepository;
         this.userRepository = userRepository;
         this.productDefinitionRepository = productDefinitionRepository;
         this.productionTaskRepository = productionTaskRepository;
+        this.rawMaterialRepository = rawMaterialRepository;
+        this.inventoryService = inventoryService;
     }
 
     @Override
     public PlanVO createPlan(PlanCreateRequest request, String userId) {
         ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                 .orElseThrow(() -> new BusinessException("产品定义不存在"));
+
+        checkAndDeductRawMaterials(productDef, request.getQuantity(), request.getPlanName());
 
         ProductionPlan plan = new ProductionPlan();
         plan.setPlanName(request.getPlanName());
@@ -60,9 +72,110 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setStatus("PENDING");
         plan.setDescription(request.getDescription());
         plan.setCreateBy(userId);
+        plan.setMaterialsDeducted(true);
 
         ProductionPlan saved = productionPlanRepository.save(plan);
         return convertToVO(saved);
+    }
+
+    private void checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String planName) {
+        if (productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
+            return;
+        }
+
+        List<String> insufficientMaterials = new ArrayList<>();
+
+        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
+            double neededQty = material.getQuantity() * planQuantity;
+
+            RawMaterial rawMaterial = rawMaterialRepository.findById(material.getMaterialId())
+                    .orElseThrow(() -> new BusinessException("原材料【" + material.getMaterialName() + "】不存在"));
+
+            double currentStock = rawMaterial.getQuantity();
+
+            if (currentStock < neededQty) {
+                double shortage = neededQty - currentStock;
+                insufficientMaterials.add("原材料【" + material.getMaterialName()
+                        + "】库存不足：需求 " + formatDecimal(neededQty) + " " + (material.getUnit() != null ? material.getUnit() : "")
+                        + "，当前库存 " + formatDecimal(currentStock)
+                        + "，缺口 " + formatDecimal(shortage));
+            }
+        }
+
+        if (!insufficientMaterials.isEmpty()) {
+            throw new BusinessException("原材料库存不足，无法创建生产计划：" + String.join("；", insufficientMaterials));
+        }
+
+        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
+            double neededQty = material.getQuantity() * planQuantity;
+            int deductQty = (int) Math.round(neededQty);
+
+            StockInOutRequest stockOutRequest = new StockInOutRequest();
+            stockOutRequest.setItemType("RAW_MATERIAL");
+            stockOutRequest.setItemId(material.getMaterialId());
+            stockOutRequest.setQuantity(deductQty);
+            stockOutRequest.setReason("生产计划-" + planName + "-扣减");
+            inventoryService.stockOut(stockOutRequest, "system");
+        }
+    }
+
+    private void syncTaskPlanQuantities(String planId, int newPlanQuantity) {
+        List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
+        if (tasks.isEmpty()) {
+            return;
+        }
+        for (ProductionTask task : tasks) {
+            task.setPlanQuantity(newPlanQuantity);
+            if (task.getProgress() != null && task.getProgress() > 0) {
+                int newCompleted = (int) Math.round(newPlanQuantity * task.getProgress() / 100.0);
+                task.setCompletedQuantity(newCompleted);
+            }
+            productionTaskRepository.save(task);
+        }
+
+        int totalCompleted = tasks.stream()
+                .mapToInt(t -> t.getCompletedQuantity() != null ? t.getCompletedQuantity() : 0)
+                .sum();
+
+        ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
+        if (plan != null) {
+            plan.setCompletedQuantity(totalCompleted);
+            productionPlanRepository.save(plan);
+        }
+    }
+
+    private void restoreRawMaterials(String planId, String planName) {
+        ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
+        if (plan == null || Boolean.FALSE.equals(plan.getMaterialsDeducted())) {
+            return;
+        }
+
+        ProductDefinition productDef = productDefinitionRepository.findById(plan.getProductDefinitionId()).orElse(null);
+        if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
+            return;
+        }
+
+        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
+            double restoreQty = material.getQuantity() * plan.getQuantity();
+            int restoreIntQty = (int) Math.round(restoreQty);
+
+            StockInOutRequest stockInRequest = new StockInOutRequest();
+            stockInRequest.setItemType("RAW_MATERIAL");
+            stockInRequest.setItemId(material.getMaterialId());
+            stockInRequest.setQuantity(restoreIntQty);
+            stockInRequest.setReason("生产计划-" + planName + "-取消返还");
+            inventoryService.stockIn(stockInRequest, "system");
+        }
+
+        plan.setMaterialsDeducted(false);
+        productionPlanRepository.save(plan);
+    }
+
+    private String formatDecimal(double value) {
+        if (value == Math.floor(value)) {
+            return String.valueOf((int) value);
+        }
+        return String.valueOf(value);
     }
 
     @Override
@@ -114,21 +227,39 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         ProductionPlan plan = productionPlanRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("生产计划不存在"));
 
-        if (request.getPlanName() != null) {
+        boolean isApproved = "APPROVED".equals(plan.getStatus());
+
+        if (isApproved && request.getPlanName() != null) {
+            throw new BusinessException("已审批通过的计划不允许修改计划名称");
+        }
+        if (!isApproved && request.getPlanName() != null) {
             plan.setPlanName(request.getPlanName());
         }
-        if (request.getProductDefinitionId() != null) {
+
+        if (isApproved && request.getProductDefinitionId() != null) {
+            throw new BusinessException("已审批通过的计划不允许修改产品定义");
+        }
+        if (!isApproved && request.getProductDefinitionId() != null) {
             ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                     .orElseThrow(() -> new BusinessException("产品定义不存在"));
             plan.setProductDefinitionId(productDef.getId());
             plan.setProductName(productDef.getProductName());
         }
-        if (request.getProductName() != null) {
+        if (!isApproved && request.getProductName() != null) {
             plan.setProductName(request.getProductName());
         }
+
+        Integer oldQuantity = plan.getQuantity();
         if (request.getQuantity() != null) {
+            int quantityDiff = request.getQuantity() - oldQuantity;
+            if (quantityDiff != 0) {
+                adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
+            }
             plan.setQuantity(request.getQuantity());
+
+            syncTaskPlanQuantities(plan.getId(), request.getQuantity());
         }
+
         if (request.getUnit() != null) {
             plan.setUnit(request.getUnit());
         }
@@ -146,12 +277,78 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return convertToVO(saved);
     }
 
+    private void adjustInventoryForQuantityChange(ProductionPlan plan, int oldQty, int newQty) {
+        ProductDefinition productDef = productDefinitionRepository.findById(plan.getProductDefinitionId()).orElse(null);
+        if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
+            return;
+        }
+
+        int diff = newQty - oldQty;
+
+        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
+            double unitNeed = material.getQuantity();
+            double totalAdjustment = unitNeed * Math.abs(diff);
+            int adjustIntQty = (int) Math.round(totalAdjustment);
+
+            if (diff > 0) {
+                RawMaterial rawMaterial = rawMaterialRepository.findById(material.getMaterialId())
+                        .orElseThrow(() -> new BusinessException("原材料【" + material.getMaterialName() + "】不存在"));
+
+                double currentStock = rawMaterial.getQuantity();
+                double neededForDiff = unitNeed * diff;
+                if (currentStock < neededForDiff) {
+                    double shortage = neededForDiff - currentStock;
+                    throw new BusinessException(
+                            "修改计划数量导致原材料库存不足：原材料【" + material.getMaterialName()
+                                    + "】需额外扣减 " + formatDecimal(neededForDiff)
+                                    + " " + (material.getUnit() != null ? material.getUnit() : "")
+                                    + "，当前库存仅 " + formatDecimal(currentStock)
+                                    + "，缺口 " + formatDecimal(shortage));
+                }
+
+                StockInOutRequest stockOutRequest = new StockInOutRequest();
+                stockOutRequest.setItemType("RAW_MATERIAL");
+                stockOutRequest.setItemId(material.getMaterialId());
+                stockOutRequest.setQuantity(adjustIntQty);
+                stockOutRequest.setReason("生产计划-" + plan.getPlanName()
+                        + "-数量调整(从" + oldQty + "增至" + newQty + ")-扣减");
+                inventoryService.stockOut(stockOutRequest, "system");
+            } else {
+                StockInOutRequest stockInRequest = new StockInOutRequest();
+                stockInRequest.setItemType("RAW_MATERIAL");
+                stockInRequest.setItemId(material.getMaterialId());
+                stockInRequest.setQuantity(adjustIntQty);
+                stockInRequest.setReason("生产计划-" + plan.getPlanName()
+                        + "-数量调整(从" + oldQty + "减至" + newQty + ")-返还");
+                inventoryService.stockIn(stockInRequest, "system");
+            }
+        }
+    }
+
     @Override
     public void deletePlan(String id) {
-        if (!productionPlanRepository.existsById(id)) {
-            throw new BusinessException("生产计划不存在");
+        ProductionPlan plan = productionPlanRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("生产计划不存在"));
+
+        if (!"CANCELLED".equals(plan.getStatus())) {
+            String statusText = getStatusText(plan.getStatus());
+            throw new BusinessException("只有【已取消】状态的生产计划才能删除，当前计划状态为：" + statusText);
         }
+
+        restoreRawMaterials(id, plan.getPlanName());
+
         productionPlanRepository.deleteById(id);
+    }
+
+    private String getStatusText(String status) {
+        switch (status) {
+            case "PENDING": return "待审批";
+            case "APPROVED": return "已审批";
+            case "IN_PROGRESS": return "进行中";
+            case "COMPLETED": return "已完成";
+            case "CANCELLED": return "已取消";
+            default: return status;
+        }
     }
 
     @Override
@@ -165,6 +362,10 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
         if (!"APPROVED".equals(status) && !"CANCELLED".equals(status)) {
             throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
+        }
+
+        if ("CANCELLED".equals(status)) {
+            restoreRawMaterials(id, plan.getPlanName());
         }
 
         plan.setStatus(status);
@@ -296,6 +497,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .description(plan.getDescription())
                 .createBy(plan.getCreateBy())
                 .createByName(createByName)
+                .materialsDeducted(plan.getMaterialsDeducted())
                 .createTime(plan.getCreateTime())
                 .updateTime(plan.getUpdateTime())
                 .build();
