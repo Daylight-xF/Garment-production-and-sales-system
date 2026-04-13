@@ -43,11 +43,11 @@
       </template>
 
       <el-table :data="userList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="username" label="用户名" min-width="100" />
-        <el-table-column prop="realName" label="真实姓名" min-width="100" />
-        <el-table-column prop="phone" label="手机号" min-width="120" />
-        <el-table-column prop="email" label="邮箱" min-width="160" />
-        <el-table-column prop="roles" label="角色" min-width="120">
+        <el-table-column prop="username" label="用户名" min-width="100" align="center"/>
+        <el-table-column prop="realName" label="真实姓名" min-width="100" align="center"/>
+        <el-table-column prop="phone" label="手机号" min-width="120" align="center"/>
+        <el-table-column prop="email" label="邮箱" min-width="160" align="center"/>
+        <el-table-column prop="roles" label="角色" min-width="120" align="center">
           <template #default="{ row }">
             <el-tag
               v-for="role in row.roles"
@@ -66,12 +66,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" min-width="160">
+        <el-table-column prop="createTime" label="创建时间" min-width="160" align="center">
           <template #default="{ row }">
             {{ formatTime(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button type="warning" link size="small" @click="handleAssignRole(row)">分配角色</el-button>

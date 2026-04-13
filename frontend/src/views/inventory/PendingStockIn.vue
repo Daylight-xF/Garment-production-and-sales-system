@@ -33,8 +33,8 @@
       </template>
 
       <el-table :data="planList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="batchNo" label="批次号" min-width="160" />
-        <el-table-column label="产品名称" min-width="150">
+        <el-table-column prop="batchNo" label="批次号" min-width="160" align="center" />
+        <el-table-column label="产品名称" min-width="150" align="center">
           <template #default="{ row }">
             {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
@@ -82,7 +82,7 @@
             {{ formatDateTime(row.taskEndDate || row.endDate) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleStockIn(row)">确认入库</el-button>
           </template>

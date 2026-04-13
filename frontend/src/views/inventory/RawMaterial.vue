@@ -35,9 +35,9 @@
       </template>
 
       <el-table :data="materialList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="name" label="名称" min-width="100" />
-        <el-table-column prop="category" label="类别" width="80" />
-        <el-table-column prop="specification" label="规格" min-width="100" />
+        <el-table-column prop="name" label="名称" min-width="100" align="center"/>
+        <el-table-column prop="category" label="类别" width="80" align="center"/>
+        <el-table-column prop="specification" label="规格" min-width="100" align="center"/>
         <el-table-column prop="unit" label="单位" width="60" align="center" />
         <el-table-column prop="quantity" label="库存数量" width="100" align="center">
           <template #default="{ row }">
@@ -54,7 +54,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="alertThreshold" label="预警阈值" width="90" align="center" />
-        <el-table-column label="存放位置" min-width="200">
+        <el-table-column label="存放位置" min-width="200" align="center">
           <template #default="{ row }">
             <div v-if="row.locations && row.locations.length > 0" class="location-container">
               <div
@@ -73,13 +73,13 @@
             <span v-else class="loc-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="supplier" label="供应商" min-width="100" />
-        <el-table-column prop="price" label="单价" width="80" align="right">
+        <el-table-column prop="supplier" label="供应商" min-width="100" align="center"/>
+        <el-table-column prop="price" label="单价" width="80" align="center">
           <template #default="{ row }">
             {{ row.price != null ? row.price.toFixed(2) : '' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button type="success" link size="small" @click="handleStockIn(row)">入库</el-button>

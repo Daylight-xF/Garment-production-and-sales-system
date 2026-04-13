@@ -40,12 +40,12 @@
             {{ row.batchNo || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="名称" min-width="150">
+        <el-table-column label="名称" min-width="150" align="center">
           <template #default="{ row }">
             {{ row.name }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
         </el-table-column>
-        <el-table-column prop="category" label="类别" width="80" />
+        <el-table-column prop="category" label="类别" width="80" align="center"/>
         <el-table-column prop="color" label="颜色" width="100" align="center">
           <template #default="{ row }">
             {{ row.color || '-' }}
@@ -72,7 +72,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="alertThreshold" label="预警阈值" width="90" align="center" />
-        <el-table-column label="存放位置" min-width="200">
+        <el-table-column label="存放位置" min-width="200" align="center">
           <template #default="{ row }">
             <div v-if="row.locations && row.locations.length > 0" class="location-container">
               <div
@@ -91,17 +91,17 @@
             <span v-else class="loc-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="price" label="销售单价" width="90" align="right">
+        <el-table-column prop="price" label="销售单价" width="90" align="center">
           <template #default="{ row }">
             {{ row.price != null ? row.price.toFixed(2) : '' }}
           </template>
         </el-table-column>
-        <el-table-column prop="costPrice" label="成本价" width="80" align="right">
+        <el-table-column prop="costPrice" label="成本价" width="80" align="center">
           <template #default="{ row }">
             {{ row.costPrice != null ? row.costPrice.toFixed(2) : '' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button type="success" link size="small" @click="handleStockIn(row)">入库</el-button>

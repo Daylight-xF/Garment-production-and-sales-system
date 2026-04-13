@@ -31,22 +31,30 @@
           </template>
         </el-table-column>
         <el-table-column prop="itemName" label="物品名称" min-width="120" />
-        <el-table-column prop="currentQuantity" label="当前数量" width="90" align="center">
+        <el-table-column prop="currentQuantity" label="当前数量" width="100" align="center">
           <template #default="{ row }">
             <span style="color: #F56C6C; font-weight: bold">{{ row.currentQuantity }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="threshold" label="预警阈值" width="90" align="center" />
-        <el-table-column prop="status" label="状态" width="80" align="center">
+        <el-table-column prop="threshold" label="预警阈值" width="100" align="center" />
+        <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'PENDING' ? 'danger' : 'success'" size="small">
               {{ row.status === 'PENDING' ? '待处理' : '已处理' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="预警时间" min-width="160" />
-        <el-table-column prop="handleTime" label="处理时间" min-width="160" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column prop="createTime" label="预警时间" min-width="60" align="center">
+          <template #default="{ row }">
+            {{ formatDateTime(row.createTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="handleTime" label="处理时间" min-width="60" align="center">
+          <template #default="{ row }">
+            {{ formatDateTime(row.handleTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'PENDING'"
@@ -106,10 +114,10 @@
     <el-dialog
       v-model="recordDialogVisible"
       title="出入库记录"
-      width="700px"
+      width="900px"
       destroy-on-close
     >
-      <el-table :data="recordList" v-loading="recordLoading" border stripe style="width: 100%">
+      <el-table :data="recordList" v-loading="recordLoading" border stripe style="width: 100%" :max-height="600">
         <el-table-column prop="inventoryType" label="类型" width="70" align="center">
           <template #default="{ row }">
             <el-tag :type="row.inventoryType === 'IN' ? 'success' : 'danger'" size="small">
@@ -117,11 +125,15 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="itemName" label="物品名称" min-width="120" />
+        <el-table-column prop="itemName" label="物品名称" min-width="120" align="center"/>
         <el-table-column prop="quantity" label="数量" width="70" align="center" />
-        <el-table-column prop="operatorName" label="操作人" width="90" />
-        <el-table-column prop="reason" label="原因" min-width="120" />
-        <el-table-column prop="createTime" label="时间" min-width="160" />
+        <el-table-column prop="operatorName" label="操作人" width="90" align="center"/>
+        <el-table-column prop="reason" label="原因" min-width="150" align="center"/>
+        <el-table-column prop="createTime" label="时间" min-width="100">
+          <template #default="{ row }">
+            {{ formatDateTime(row.createTime) }}
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="pagination-container">
@@ -143,6 +155,14 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAlertList, handleAlert as handleAlertApi, getInventoryRecords } from '../../api/inventory'
+
+function formatDateTime(val) {
+  if (!val) return ''
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 const loading = ref(false)
 const submitLoading = ref(false)

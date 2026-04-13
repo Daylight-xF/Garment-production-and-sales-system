@@ -44,9 +44,9 @@
       </template>
 
       <el-table :data="productList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="productCode" label="产品编号" width="120" />
-        <el-table-column prop="productName" label="产品名称" min-width="120" />
-        <el-table-column prop="category" label="产品分类" width="100" />
+        <el-table-column prop="productCode" label="产品编号" width="120" align="center" />
+        <el-table-column prop="productName" label="产品名称" min-width="120" align="center"/>
+        <el-table-column prop="category" label="产品分类" width="100" align="center"/>
         <el-table-column prop="status" label="状态" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === '启用' ? 'success' : 'danger'">
@@ -65,7 +65,7 @@
             {{ formatDateTime(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>

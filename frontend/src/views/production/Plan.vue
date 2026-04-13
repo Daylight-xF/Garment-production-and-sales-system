@@ -37,8 +37,8 @@
       </template>
 
       <el-table :data="planList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="batchNo" label="批次号" min-width="120" />
-        <el-table-column label="产品名称" min-width="150">
+        <el-table-column prop="batchNo" label="批次号" min-width="120" align="center"/>
+        <el-table-column label="产品名称" min-width="150" align="center">
           <template #default="{ row }">
             {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
@@ -55,12 +55,12 @@
         </el-table-column>
         <el-table-column prop="quantity" label="计划数量" width="100" align="center" />
         <el-table-column prop="completedQuantity" label="已完成数量" width="110" align="center" />
-        <el-table-column prop="startDate" label="计划开始日期" width="110">
+        <el-table-column prop="startDate" label="计划开始日期" width="110" align="center">
           <template #default="{ row }">
             {{ row.startDate ? row.startDate.substring(0, 10) : '' }}
           </template>
         </el-table-column>
-        <el-table-column prop="endDate" label="计划结束日期" width="110">
+        <el-table-column prop="endDate" label="计划结束日期" width="110" align="center">
           <template #default="{ row }">
             {{ row.endDate ? row.endDate.substring(0, 10) : '' }}
           </template>
@@ -72,7 +72,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right" align="center">
           <template #default="{ row }">
             <el-button v-if="row.status !== 'COMPLETED' && !canCompletePlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
