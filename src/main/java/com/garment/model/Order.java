@@ -41,6 +41,10 @@ public class Order {
 
     private Date approveTime;
 
+    private Date shipTime;
+
+    private Date completeTime;
+
     private String approveRemark;
 
     private String remark;

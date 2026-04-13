@@ -9,6 +9,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -19,9 +20,27 @@ public class SalesRecord {
     @Id
     private String id;
 
+    private String orderId;
+
+    private String orderNo;
+
     private String customerId;
 
     private String customerName;
+
+    private Integer productCount;
+
+    private Integer totalQuantity;
+
+    private Double totalAmount;
+
+    private Date orderDate;
+
+    private Date shipDate;
+
+    private Date completeDate;
+
+    private List<SalesRecordItem> items;
 
     private String productId;
 
@@ -48,4 +67,17 @@ public class SalesRecord {
 
     @LastModifiedDate
     private Date updateTime;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SalesRecordItem {
+        private String productId;
+        private String productCode;
+        private String productName;
+        private String specification;
+        private Integer quantity;
+        private Double unitPrice;
+        private Double amount;
+    }
 }

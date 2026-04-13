@@ -6,11 +6,13 @@ import com.garment.model.Order;
 import com.garment.model.OrderItem;
 import com.garment.model.OrderLog;
 import com.garment.model.ProductDefinition;
+import com.garment.model.SalesRecord;
 import com.garment.model.User;
 import com.garment.repository.OrderItemRepository;
 import com.garment.repository.OrderLogRepository;
 import com.garment.repository.OrderRepository;
 import com.garment.repository.ProductDefinitionRepository;
+import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.OrderService;
 import org.springframework.data.domain.Page;
@@ -33,17 +35,20 @@ public class OrderServiceImpl implements OrderService {
     private final OrderLogRepository orderLogRepository;
     private final UserRepository userRepository;
     private final ProductDefinitionRepository productDefinitionRepository;
+    private final SalesRecordRepository salesRecordRepository;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OrderItemRepository orderItemRepository,
                             OrderLogRepository orderLogRepository,
                             UserRepository userRepository,
-                            ProductDefinitionRepository productDefinitionRepository) {
+                            ProductDefinitionRepository productDefinitionRepository,
+                            SalesRecordRepository salesRecordRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderLogRepository = orderLogRepository;
         this.userRepository = userRepository;
         this.productDefinitionRepository = productDefinitionRepository;
+        this.salesRecordRepository = salesRecordRepository;
     }
 
     @Override
@@ -218,6 +223,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setStatus("SHIPPED");
+        order.setShipTime(new Date());
         orderRepository.save(order);
 
         User user = userRepository.findById(userId)
@@ -238,6 +244,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setStatus("COMPLETED");
+        order.setCompleteTime(new Date());
         orderRepository.save(order);
 
         User user = userRepository.findById(userId)
@@ -245,6 +252,7 @@ public class OrderServiceImpl implements OrderService {
         saveLog(id, userId, user.getRealName(), "COMPLETE", "订单完成");
 
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
+        archiveCompletedOrder(order, items);
         return convertToVO(order, items, null);
     }
 
@@ -264,6 +272,67 @@ public class OrderServiceImpl implements OrderService {
         log.setAction(action);
         log.setRemark(remark);
         orderLogRepository.save(log);
+    }
+
+    private void archiveCompletedOrder(Order order, List<OrderItem> items) {
+        if (salesRecordRepository.findByOrderId(order.getId()).isPresent()) {
+            return;
+        }
+
+        List<OrderItem> safeItems = items != null ? items : new ArrayList<>();
+        int totalQuantity = safeItems.stream()
+                .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
+                .sum();
+        double totalAmount = order.getTotalAmount() != null
+                ? order.getTotalAmount()
+                : safeItems.stream()
+                .mapToDouble(item -> item.getAmount() != null ? item.getAmount() : 0D)
+                .sum();
+
+        SalesRecord salesRecord = new SalesRecord();
+        salesRecord.setOrderId(order.getId());
+        salesRecord.setOrderNo(order.getOrderNo());
+        salesRecord.setCustomerId(order.getCustomerId());
+        salesRecord.setCustomerName(order.getCustomerName());
+        salesRecord.setProductCount(safeItems.size());
+        salesRecord.setTotalQuantity(totalQuantity);
+        salesRecord.setTotalAmount(totalAmount);
+        salesRecord.setOrderDate(order.getCreateTime());
+        salesRecord.setShipDate(order.getShipTime());
+        salesRecord.setCompleteDate(order.getCompleteTime());
+        salesRecord.setSaleDate(order.getCompleteTime());
+        salesRecord.setCreateBy(order.getCreateBy());
+        salesRecord.setCreateByName(order.getCreateByName());
+        salesRecord.setItems(safeItems.stream()
+                .map(item -> new SalesRecord.SalesRecordItem(
+                        item.getProductId(),
+                        item.getProductCode(),
+                        item.getProductName(),
+                        item.getSpecification(),
+                        item.getQuantity(),
+                        item.getUnitPrice(),
+                        item.getAmount()))
+                .collect(Collectors.toList()));
+
+        if (safeItems.size() == 1) {
+            OrderItem firstItem = safeItems.get(0);
+            salesRecord.setProductId(firstItem.getProductId());
+            salesRecord.setProductCode(firstItem.getProductCode());
+            salesRecord.setProductName(firstItem.getProductName());
+            salesRecord.setQuantity(firstItem.getQuantity());
+            salesRecord.setUnitPrice(firstItem.getUnitPrice());
+            salesRecord.setAmount(firstItem.getAmount());
+        } else {
+            salesRecord.setQuantity(totalQuantity);
+            salesRecord.setAmount(totalAmount);
+            salesRecord.setProductName(safeItems.stream()
+                    .map(OrderItem::getProductName)
+                    .filter(StringUtils::hasText)
+                    .distinct()
+                    .collect(Collectors.joining("、")));
+        }
+
+        salesRecordRepository.save(salesRecord);
     }
 
     private OrderVO convertToVO(Order order, List<OrderItem> items, List<OrderLog> logs) {
@@ -308,6 +377,8 @@ public class OrderServiceImpl implements OrderService {
                 .approveBy(order.getApproveBy())
                 .approveByName(order.getApproveByName())
                 .approveTime(order.getApproveTime())
+                .shipTime(order.getShipTime())
+                .completeTime(order.getCompleteTime())
                 .approveRemark(order.getApproveRemark())
                 .remark(order.getRemark())
                 .createTime(order.getCreateTime())

@@ -25,6 +25,8 @@ public class OrderVO {
     private String approveBy;
     private String approveByName;
     private Date approveTime;
+    private Date shipTime;
+    private Date completeTime;
     private String approveRemark;
     private String remark;
     private Date createTime;

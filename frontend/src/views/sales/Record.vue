@@ -1,16 +1,21 @@
 <template>
   <div class="sales-record-container">
+    <div class="page-header">
+      <el-tag type="primary" effect="plain" round>订单自动归档</el-tag>
+    </div>
+
     <el-card class="search-card">
       <el-form :inline="true" :model="searchForm" class="search-form">
-        <el-form-item label="客户名称">
+        <el-form-item label="关键词">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入客户/产品名称"
+            placeholder="客户、订单号、商品名称"
             clearable
+            class="keyword-input"
             @keyup.enter="handleSearch"
           />
         </el-form-item>
-        <el-form-item label="销售日期">
+        <el-form-item label="完成日期">
           <el-date-picker
             v-model="searchForm.dateRange"
             type="daterange"
@@ -18,11 +23,11 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
-            style="width: 260px"
+            class="date-range"
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
@@ -32,42 +37,60 @@
       <template #header>
         <div class="table-header">
           <span>销售记录列表</span>
-          <el-button type="primary" @click="handleAdd">
-            <el-icon><Plus /></el-icon>新增销售记录
-          </el-button>
+          <span class="table-total">共 {{ pagination.total }} 条</span>
         </div>
       </template>
 
-      <el-table :data="recordList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="customerName" label="客户名称" min-width="120" />
-        <el-table-column label="产品名称" min-width="160">
+      <el-table :data="recordList" v-loading="loading" border stripe class="record-table">
+        <el-table-column prop="customerName" label="客户名称" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="orderNo" label="订单编号" min-width="170" show-overflow-tooltip />
+        <el-table-column label="商品概览" min-width="220">
           <template #default="{ row }">
-            {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
+            <div class="product-summary">
+              <div class="product-name">{{ getProductPreview(row) }}</div>
+              <div class="product-meta">
+                <span>{{ row.productCount || 0 }} 款商品</span>
+                <span>共 {{ row.totalQuantity || 0 }} 件</span>
+              </div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="80" align="center" />
-        <el-table-column prop="unitPrice" label="单价" width="100" align="right">
+        <el-table-column label="总金额" width="130" align="right">
           <template #default="{ row }">
-            {{ row.unitPrice?.toFixed(2) }}
+            <span class="amount-text">{{ formatAmount(row.totalAmount) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="amount" label="金额" width="120" align="right">
+        <el-table-column label="下单日期" width="170" align="center">
           <template #default="{ row }">
-            <span style="color: #e6a23c; font-weight: 600">{{ row.amount?.toFixed(2) }}</span>
+            {{ formatDateTime(row.orderDate) || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="saleDate" label="销售日期" min-width="110" align="center">
+        <el-table-column label="发货日期" width="170" align="center">
           <template #default="{ row }">
-            {{ formatDate(row.saleDate) }}
+            {{ formatDateTime(row.shipDate) || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="createByName" label="创建人" width="100" align="center" />
-        <el-table-column label="操作" width="140" fixed="right" align="center">
+        <el-table-column label="完成日期" width="170" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            {{ formatDateTime(row.completeDate) || '-' }}
           </template>
         </el-table-column>
+        <el-table-column prop="createByName" label="创建人" width="110" align="center" />
+        <el-table-column label="操作" width="100" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="handleView(row)">查看</el-button>
+          </template>
+        </el-table-column>
+
+        <template #empty>
+          <div class="table-empty">
+            <el-empty description="暂无销售记录" :image-size="80">
+              <template #description>
+                <span class="empty-desc">订单完成后会自动生成销售记录</span>
+              </template>
+            </el-empty>
+          </div>
+        </template>
       </el-table>
 
       <div class="pagination-container">
@@ -84,106 +107,107 @@
     </el-card>
 
     <el-dialog
-      v-model="dialogVisible"
-      :title="dialogType === 'add' ? '新增销售记录' : '编辑销售记录'"
-      width="560px"
+      v-model="detailVisible"
+      title="销售记录明细"
+      width="880px"
       destroy-on-close
     >
-      <el-form
-        ref="recordFormRef"
-        :model="recordForm"
-        :rules="recordFormRules"
-        label-width="90px"
-      >
-        <el-form-item label="客户" prop="customerId">
-          <el-select
-            v-model="recordForm.customerId"
-            placeholder="请选择客户"
-            filterable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="customer in customerOptions"
-              :key="customer.id"
-              :label="customer.name"
-              :value="customer.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="产品名称" prop="productName">
-          <el-input v-model="recordForm.productName" placeholder="请输入产品名称" />
-        </el-form-item>
-        <el-form-item label="数量" prop="quantity">
-          <el-input-number
-            v-model="recordForm.quantity"
-            :min="1"
-            :max="99999"
-            style="width: 100%"
-            @change="calcAmount"
-          />
-        </el-form-item>
-        <el-form-item label="单价" prop="unitPrice">
-          <el-input-number
-            v-model="recordForm.unitPrice"
-            :min="0"
-            :precision="2"
-            :step="10"
-            style="width: 100%"
-            @change="calcAmount"
-          />
-        </el-form-item>
-        <el-form-item label="金额">
-          <el-input
-            :model-value="recordForm.amount?.toFixed(2)"
-            disabled
-            placeholder="自动计算"
-          />
-        </el-form-item>
-        <el-form-item label="销售日期" prop="saleDate">
-          <el-date-picker
-            v-model="recordForm.saleDate"
-            type="date"
-            placeholder="选择日期"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input
-            v-model="recordForm.remark"
-            type="textarea"
-            :rows="2"
-            placeholder="请输入备注"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
-      </template>
+      <div v-loading="detailLoading">
+        <template v-if="detailRecord">
+          <div class="detail-block detail-summary">
+            <div class="summary-row">
+              <div class="summary-item wide">
+                <span class="label">客户名称</span>
+                <span class="value strong">{{ detailRecord.customerName || '--' }}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">订单编号</span>
+                <span class="value">{{ detailRecord.orderNo || '--' }}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">创建人</span>
+                <span class="value">{{ detailRecord.createByName || '--' }}</span>
+              </div>
+            </div>
+            <div class="summary-row">
+              <div class="summary-item">
+                <span class="label">商品款数</span>
+                <span class="value">{{ detailRecord.productCount || 0 }} 款</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">商品总数</span>
+                <span class="value">{{ detailRecord.totalQuantity || 0 }}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">订单金额</span>
+                <span class="value amount-text">{{ formatAmount(detailRecord.totalAmount) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-block">
+            <div class="block-title">订单时间</div>
+            <div class="summary-row">
+              <div class="summary-item">
+                <span class="label">下单日期</span>
+                <span class="value">{{ formatDateTime(detailRecord.orderDate) || '--' }}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">发货日期</span>
+                <span class="value">{{ formatDateTime(detailRecord.shipDate) || '--' }}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">完成日期</span>
+                <span class="value">{{ formatDateTime(detailRecord.completeDate) || '--' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-block">
+            <div class="block-title">商品明细</div>
+            <el-table :data="detailItems" border stripe>
+              <el-table-column type="index" label="#" width="60" align="center" />
+              <el-table-column prop="productName" label="商品名称" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="productCode" label="商品编码" width="140" />
+              <el-table-column prop="specification" label="规格" width="120" align="center">
+                <template #default="{ row }">
+                  {{ row.specification || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="quantity" label="数量" width="90" align="center" />
+              <el-table-column label="单价" width="110" align="right">
+                <template #default="{ row }">
+                  {{ formatAmount(row.unitPrice) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="小计" width="120" align="right">
+                <template #default="{ row }">
+                  <span class="amount-text">{{ formatAmount(row.amount) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div v-if="detailRecord.remark" class="detail-block">
+            <div class="block-title">备注</div>
+            <div class="remark-text">{{ detailRecord.remark }}</div>
+          </div>
+        </template>
+      </div>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  getSalesRecordList,
-  createSalesRecord,
-  updateSalesRecord,
-  deleteSalesRecord,
-  getCustomerList
-} from '../../api/sales'
+import { computed, reactive, ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getSalesRecordDetail, getSalesRecordList } from '../../api/sales'
 
 const loading = ref(false)
-const submitLoading = ref(false)
+const detailLoading = ref(false)
 const recordList = ref([])
-const customerOptions = ref([])
-const dialogVisible = ref(false)
-const dialogType = ref('add')
-const currentId = ref(null)
-const recordFormRef = ref(null)
+const detailVisible = ref(false)
+const detailRecord = ref(null)
 
 const searchForm = reactive({
   keyword: '',
@@ -196,28 +220,10 @@ const pagination = reactive({
   total: 0
 })
 
-const recordForm = reactive({
-  customerId: '',
-  productId: '',
-  productName: '',
-  quantity: 1,
-  unitPrice: 0,
-  amount: 0,
-  saleDate: '',
-  remark: ''
-})
-
-const recordFormRules = {
-  customerId: [{ required: true, message: '请选择客户', trigger: 'change' }],
-  productName: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
-  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
-  unitPrice: [{ required: true, message: '请输入单价', trigger: 'blur' }],
-  saleDate: [{ required: true, message: '请选择销售日期', trigger: 'change' }]
-}
+const detailItems = computed(() => detailRecord.value?.items || [])
 
 onMounted(() => {
   fetchRecordList()
-  fetchCustomerOptions()
 })
 
 async function fetchRecordList() {
@@ -228,7 +234,7 @@ async function fetchRecordList() {
       size: pagination.pageSize,
       keyword: searchForm.keyword || undefined
     }
-    if (searchForm.dateRange && searchForm.dateRange.length === 2) {
+    if (searchForm.dateRange?.length === 2) {
       params.startDate = searchForm.dateRange[0]
       params.endDate = searchForm.dateRange[1]
     }
@@ -243,29 +249,6 @@ async function fetchRecordList() {
   }
 }
 
-async function fetchCustomerOptions() {
-  try {
-    const res = await getCustomerList({ page: 1, size: 1000 })
-    const data = res.data || res
-    customerOptions.value = data.list || []
-  } catch (error) {
-    console.error('获取客户列表失败')
-  }
-}
-
-function calcAmount() {
-  recordForm.amount = (recordForm.quantity || 0) * (recordForm.unitPrice || 0)
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function handleSearch() {
   pagination.page = 1
   fetchRecordList()
@@ -278,95 +261,59 @@ function handleReset() {
   fetchRecordList()
 }
 
-function handleAdd() {
-  dialogType.value = 'add'
-  Object.assign(recordForm, {
-    customerId: '',
-    productId: '',
-    productName: '',
-    quantity: 1,
-    unitPrice: 0,
-    amount: 0,
-    saleDate: '',
-    remark: ''
-  })
-  dialogVisible.value = true
-}
-
-function handleEdit(row) {
-  dialogType.value = 'edit'
-  currentId.value = row.id
-  Object.assign(recordForm, {
-    customerId: row.customerId,
-    productId: row.productId,
-    productName: row.productName,
-    quantity: row.quantity,
-    unitPrice: row.unitPrice,
-    amount: row.amount,
-    saleDate: formatDate(row.saleDate),
-    remark: row.remark || ''
-  })
-  dialogVisible.value = true
-}
-
-async function handleSubmit() {
-  const form = recordFormRef.value
-  if (!form) return
-  await form.validate(async (valid) => {
-    if (!valid) return
-    submitLoading.value = true
-    try {
-      const data = {
-        customerId: recordForm.customerId,
-        productId: recordForm.productId,
-        productName: recordForm.productName,
-        quantity: recordForm.quantity,
-        unitPrice: recordForm.unitPrice,
-        saleDate: recordForm.saleDate,
-        remark: recordForm.remark
-      }
-      if (dialogType.value === 'add') {
-        await createSalesRecord(data)
-        ElMessage.success('新增销售记录成功')
-      } else {
-        await updateSalesRecord(currentId.value, data)
-        ElMessage.success('编辑销售记录成功')
-      }
-      dialogVisible.value = false
-      fetchRecordList()
-    } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
-    } finally {
-      submitLoading.value = false
-    }
-  })
-}
-
-async function handleDelete(row) {
+async function handleView(row) {
+  detailVisible.value = true
+  detailLoading.value = true
   try {
-    await ElMessageBox.confirm(
-      `确定删除该条销售记录吗？此操作不可恢复。`,
-      '警告',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    await deleteSalesRecord(row.id)
-    ElMessage.success('删除成功')
-    fetchRecordList()
+    const res = await getSalesRecordDetail(row.id)
+    detailRecord.value = res.data || res
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
-    }
+    detailVisible.value = false
+    ElMessage.error('获取销售记录详情失败')
+  } finally {
+    detailLoading.value = false
   }
+}
+
+function getProductPreview(row) {
+  const names = (row.items || [])
+    .map(item => item.productName)
+    .filter(Boolean)
+  if (!names.length) {
+    return row.productName || '--'
+  }
+  if (names.length === 1) {
+    return names[0]
+  }
+  return `${names[0]} 等 ${names.length} 项`
+}
+
+function formatAmount(value) {
+  const amount = Number(value || 0)
+  return `¥${amount.toFixed(2)}`
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return ''
+  }
+  const date = new Date(value)
+  const pad = num => String(num).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 </script>
 
 <style scoped>
 .sales-record-container {
   padding: 20px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .search-card {
@@ -379,15 +326,151 @@ async function handleDelete(row) {
   align-items: center;
 }
 
+.keyword-input {
+  width: 260px;
+}
+
+.date-range {
+  width: 280px;
+}
+
 .table-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.table-total {
+  font-size: 13px;
+  color: #909399;
+}
+
+.record-table :deep(.el-table__cell) {
+  padding: 12px 0;
+}
+
+.product-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.product-name {
+  color: #303133;
+  line-height: 1.5;
+}
+
+.product-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #909399;
+}
+
+.amount-text {
+  color: #e6a23c;
+  font-weight: 600;
+}
+
+.table-empty {
+  padding: 24px 0 12px;
+}
+
+.empty-desc {
+  font-size: 12px;
+  color: #909399;
+}
+
 .pagination-container {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.detail-block {
+  margin-bottom: 16px;
+}
+
+.detail-summary {
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+}
+
+.block-title {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.summary-row:last-child {
+  margin-bottom: 0;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+}
+
+.summary-item.wide {
+  grid-column: span 1;
+}
+
+.label {
+  font-size: 12px;
+  color: #909399;
+}
+
+.value {
+  font-size: 14px;
+  color: #303133;
+  word-break: break-all;
+}
+
+.value.strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.remark-text {
+  padding: 14px 16px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+  color: #606266;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .page-header,
+  .table-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .summary-row {
+    grid-template-columns: 1fr;
+  }
+
+  .keyword-input,
+  .date-range {
+    width: 100%;
+  }
 }
 </style>

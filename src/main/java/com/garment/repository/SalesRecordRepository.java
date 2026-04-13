@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface SalesRecordRepository extends MongoRepository<SalesRecord, String> {
@@ -13,4 +14,6 @@ public interface SalesRecordRepository extends MongoRepository<SalesRecord, Stri
     List<SalesRecord> findByCustomerId(String customerId);
 
     List<SalesRecord> findBySaleDateBetween(Date startDate, Date endDate);
+
+    Optional<SalesRecord> findByOrderId(String orderId);
 }
