@@ -21,6 +21,7 @@ public class UserVO {
     private String email;
     private Integer status;
     private List<String> roles;
+    private List<String> permissions;
     private List<RoleInfo> roleDetails;
     private Date createTime;
     private Date updateTime;

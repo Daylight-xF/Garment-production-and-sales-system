@@ -40,10 +40,22 @@
             <el-icon><Box /></el-icon>
             <span>库存管理</span>
           </template>
-          <el-menu-item index="/inventory/raw-material">原材料库存</el-menu-item>
-          <el-menu-item index="/inventory/finished-product">成品库存</el-menu-item>
-          <el-menu-item index="/inventory/pending-stock-in">待入库</el-menu-item>
-          <el-menu-item index="/inventory/alert">库存预警</el-menu-item>
+          <el-menu-item
+            v-if="hasInventoryItemPermission('rawMaterial')"
+            index="/inventory/raw-material"
+          >原材料库存</el-menu-item>
+          <el-menu-item
+            v-if="hasInventoryItemPermission('finishedProduct')"
+            index="/inventory/finished-product"
+          >成品库存</el-menu-item>
+          <el-menu-item
+            v-if="hasInventoryItemPermission('pendingStockIn')"
+            index="/inventory/pending-stock-in"
+          >待入库</el-menu-item>
+          <el-menu-item
+            v-if="hasInventoryItemPermission('alert')"
+            index="/inventory/alert"
+          >库存预警</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu
@@ -148,16 +160,29 @@ const currentRoute = computed(() => route)
 
 const menuRoleMap = {
   production: ['admin', 'production_manager'],
-  inventory: ['admin', 'warehouse_staff'],
+  inventory: ['admin', 'warehouse_staff', 'sales_staff'],
   order: ['admin', 'sales_staff'],
   sales: ['admin', 'sales_staff'],
   statistics: ['admin', 'production_manager'],
   system: ['admin']
 }
 
+const inventoryItemRoleMap = {
+  rawMaterial: ['admin', 'warehouse_staff'],
+  finishedProduct: ['admin', 'warehouse_staff', 'sales_staff'],
+  pendingStockIn: ['admin', 'warehouse_staff'],
+  alert: ['admin', 'warehouse_staff']
+}
+
 function hasMenuPermission(menuKey) {
   const allowedRoles = menuRoleMap[menuKey]
   if (!allowedRoles) return true
+  return userStore.roles.some((role) => allowedRoles.includes(role))
+}
+
+function hasInventoryItemPermission(itemKey) {
+  const allowedRoles = inventoryItemRoleMap[itemKey]
+  if (!allowedRoles) return false
   return userStore.roles.some((role) => allowedRoles.includes(role))
 }
 

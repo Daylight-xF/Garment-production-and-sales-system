@@ -28,7 +28,7 @@
       <template #header>
         <div class="table-header">
           <span>成品列表</span>
-          <el-button type="primary" @click="handleAdd">
+          <el-button v-if="canCreateOrEditProduct" type="primary" @click="handleAdd">
             <el-icon><Plus /></el-icon>新增成品
           </el-button>
         </div>
@@ -101,13 +101,13 @@
             {{ row.costPrice != null ? row.costPrice.toFixed(2) : '' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right" align="center">
+        <el-table-column v-if="showActionColumn" label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button type="success" link size="small" @click="handleStockIn(row)">入库</el-button>
-            <el-button type="warning" link size="small" @click="handleStockOut(row)">出库</el-button>
-            <el-button type="info" link size="small" @click="handleSetThreshold(row)">阈值</el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canCreateOrEditProduct" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="canStockIn" type="success" link size="small" @click="handleStockIn(row)">入库</el-button>
+            <el-button v-if="canStockOut" type="warning" link size="small" @click="handleStockOut(row)">出库</el-button>
+            <el-button v-if="canSetThreshold" type="info" link size="small" @click="handleSetThreshold(row)">阈值</el-button>
+            <el-button v-if="canCreateOrEditProduct" type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -356,6 +356,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Switch, Rank, Close } from '@element-plus/icons-vue'
+import { useUserStore } from '../../store/user'
 import {
   getFinishedProductList,
   createFinishedProduct,
@@ -367,6 +368,7 @@ import {
   moveFinishedProductLocation
 } from '../../api/inventory'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const submitLoading = ref(false)
 const productList = ref([])
@@ -437,6 +439,14 @@ watch(() => stockForm.stockLocation, (newLoc) => {
 
 const thresholdForm = reactive({
   alertThreshold: 0
+})
+
+const canCreateOrEditProduct = computed(() => userStore.hasPermission('INVENTORY_IN'))
+const canStockIn = computed(() => userStore.hasPermission('INVENTORY_IN'))
+const canStockOut = computed(() => userStore.hasPermission('INVENTORY_OUT'))
+const canSetThreshold = computed(() => userStore.hasPermission('INVENTORY_ALERT'))
+const showActionColumn = computed(() => {
+  return canCreateOrEditProduct.value || canStockIn.value || canStockOut.value || canSetThreshold.value
 })
 
 const movePanelVisible = ref(false)

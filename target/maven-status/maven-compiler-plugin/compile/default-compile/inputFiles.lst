@@ -89,6 +89,8 @@ E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\gar
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\service\impl\StatisticsServiceImpl.java
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\dto\AlertStatsVO.java
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\dto\PlanStatusDistributionVO.java
+E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\dto\MoveLocationRequest.java
+E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\model\LocationInfo.java
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\model\OrderItem.java
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\dto\RawMaterialVO.java
 E:\82777\Desktop\bishe\Garment-production-and-sales-system\src\main\java\com\garment\controller\RoleController.java

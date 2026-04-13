@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -200,6 +201,7 @@ public class UserServiceImpl implements UserService {
     private UserVO convertToVO(User user) {
         List<UserVO.RoleInfo> roleDetails = new ArrayList<>();
         List<String> roleCodes = new ArrayList<>();
+        LinkedHashSet<String> permissions = new LinkedHashSet<>();
         if (user.getRoles() != null) {
             for (String roleId : user.getRoles()) {
                 roleRepository.findById(roleId).ifPresent(role -> {
@@ -209,6 +211,9 @@ public class UserServiceImpl implements UserService {
                             .code(role.getCode())
                             .build());
                     roleCodes.add(role.getCode());
+                    if (role.getPermissions() != null) {
+                        permissions.addAll(role.getPermissions());
+                    }
                 });
             }
         }
@@ -230,6 +235,7 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .status(user.getStatus())
                 .roles(roleCodes)
+                .permissions(new ArrayList<>(permissions))
                 .roleDetails(roleDetails)
                 .createTime(createTime)
                 .updateTime(updateTime)

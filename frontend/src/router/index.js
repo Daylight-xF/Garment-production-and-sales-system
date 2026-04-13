@@ -55,7 +55,7 @@ const routes = [
         path: 'inventory/finished-product',
         name: 'FinishedProduct',
         component: () => import('../views/inventory/FinishedProduct.vue'),
-        meta: { title: '成品库存', roles: ['admin', 'warehouse_staff'] }
+        meta: { title: '成品库存', roles: ['admin', 'warehouse_staff', 'sales_staff'] }
       },
       {
         path: 'inventory/alert',

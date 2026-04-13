@@ -73,7 +73,7 @@ public class InventoryController {
     }
 
     @GetMapping("/finished-products")
-    @PreAuthorize("hasAuthority('INVENTORY_READ')")
+    @PreAuthorize("hasAnyAuthority('INVENTORY_READ', 'ORDER_CREATE')")
     public Result<Map<String, Object>> getFinishedProductList(
             @RequestParam(defaultValue = "") String name,
             @RequestParam(defaultValue = "") String category,
