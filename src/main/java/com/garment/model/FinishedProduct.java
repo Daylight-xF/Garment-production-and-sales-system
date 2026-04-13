@@ -9,6 +9,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -25,7 +26,11 @@ public class FinishedProduct {
 
     private String category;
 
-    private String specification;
+    private String color;
+
+    private String size;
+
+    private String batchNo;
 
     private String unit;
 
@@ -33,7 +38,7 @@ public class FinishedProduct {
 
     private Integer alertThreshold;
 
-    private String location;
+    private List<LocationInfo> locations;
 
     private Double price;
 

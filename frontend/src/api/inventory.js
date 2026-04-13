@@ -131,3 +131,11 @@ export function handleAlert(id, data) {
     data
   })
 }
+
+export function moveRawMaterialLocation(id, data) {
+  return request({
+    url: `/inventory/raw-materials/${id}/move-location`,
+    method: 'post',
+    data
+  })
+}

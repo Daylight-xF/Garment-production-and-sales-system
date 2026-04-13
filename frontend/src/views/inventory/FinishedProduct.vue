@@ -35,23 +35,62 @@
       </template>
 
       <el-table :data="productList" v-loading="loading" border stripe style="width: 100%">
+        <el-table-column prop="batchNo" label="批次号" width="180" align="center">
+          <template #default="{ row }">
+            {{ row.batchNo || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column label="名称" min-width="150">
           <template #default="{ row }">
             {{ row.name }}{{ row.productCode ? '-' + row.productCode : '' }}
           </template>
         </el-table-column>
         <el-table-column prop="category" label="类别" width="80" />
-        <el-table-column prop="specification" label="规格" min-width="100" />
-        <el-table-column prop="unit" label="单位" width="60" align="center" />
-        <el-table-column prop="quantity" label="库存数量" width="90" align="center">
+        <el-table-column prop="color" label="颜色" width="100" align="center">
           <template #default="{ row }">
-            <span :style="{ color: row.quantity <= row.alertThreshold ? '#F56C6C' : '' }">
+            {{ row.color || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="size" label="尺码" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.size || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="unit" label="单位" width="60" align="center" />
+        <el-table-column prop="quantity" label="库存数量" width="100" align="center">
+          <template #default="{ row }">
+            <span
+              class="qty-badge"
+              :class="{
+                'qty-low': row.quantity <= row.alertThreshold,
+                'qty-normal': row.quantity > row.alertThreshold,
+                'qty-zero': row.quantity === 0
+              }"
+            >
               {{ row.quantity }}
             </span>
           </template>
         </el-table-column>
         <el-table-column prop="alertThreshold" label="预警阈值" width="90" align="center" />
-        <el-table-column prop="location" label="存放位置" min-width="100" />
+        <el-table-column label="存放位置" min-width="200">
+          <template #default="{ row }">
+            <div v-if="row.locations && row.locations.length > 0" class="location-container">
+              <div
+                v-for="(loc, index) in row.locations"
+                :key="index"
+                class="location-chip"
+                :style="{ '--chip-index': index }"
+              >
+                <span class="loc-icon">📦</span>
+                <span class="loc-name">{{ loc.location }}</span>
+                <span class="loc-qty">
+                  <em>{{ loc.quantity }}</em>件
+                </span>
+              </div>
+            </div>
+            <span v-else class="loc-empty">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="price" label="销售单价" width="90" align="right">
           <template #default="{ row }">
             {{ row.price != null ? row.price.toFixed(2) : '' }}
@@ -108,8 +147,19 @@
             <el-option label="裙子" value="裙子" />
           </el-select>
         </el-form-item>
-        <el-form-item label="规格" prop="specification">
-          <el-input v-model="productForm.specification" placeholder="请输入规格(尺码/颜色)" />
+        <el-form-item label="颜色" prop="color">
+          <el-input v-model="productForm.color" placeholder="请输入颜色（如：红色、深蓝色）" maxlength="50" show-word-limit />
+        </el-form-item>
+        <el-form-item label="尺码" prop="size">
+          <el-select v-model="productForm.size" placeholder="请选择尺码" style="width: 100%">
+            <el-option label="XS" value="XS" />
+            <el-option label="S" value="S" />
+            <el-option label="M" value="M" />
+            <el-option label="L" value="L" />
+            <el-option label="XL" value="XL" />
+            <el-option label="XXL" value="XXL" />
+            <el-option label="XXXL" value="XXXL" />
+          </el-select>
         </el-form-item>
         <el-form-item label="单位" prop="unit">
           <el-input v-model="productForm.unit" placeholder="请输入单位" />
@@ -120,8 +170,22 @@
         <el-form-item v-if="dialogType === 'add'" label="预警阈值" prop="alertThreshold">
           <el-input-number v-model="productForm.alertThreshold" :min="0" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="存放位置" prop="location">
-          <el-input v-model="productForm.location" placeholder="请输入存放位置" />
+        <el-form-item label="存放位置">
+          <div v-if="productForm.locations && productForm.locations.length > 0" class="location-container">
+            <div
+              v-for="(loc, index) in productForm.locations"
+              :key="index"
+              class="location-chip"
+              :style="{ '--chip-index': index }"
+            >
+              <span class="loc-icon">📦</span>
+              <span class="loc-name">{{ loc.location }}</span>
+              <span class="loc-qty">
+                <em>{{ loc.quantity }}</em>件
+              </span>
+            </div>
+          </div>
+          <span v-else style="color: #909399; font-size: 13px;">暂无入库位置记录</span>
         </el-form-item>
         <el-form-item label="销售单价" prop="price">
           <el-input-number v-model="productForm.price" :min="0" :precision="2" style="width: 100%" />
@@ -242,11 +306,12 @@ const pagination = reactive({
 const productForm = reactive({
   name: '',
   category: '',
-  specification: '',
+  color: '',
+  size: '',
   unit: '',
   quantity: 0,
   alertThreshold: 0,
-  location: '',
+  locations: [],
   price: 0,
   costPrice: 0,
   description: ''
@@ -310,16 +375,29 @@ function handleReset() {
   fetchList()
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
 function handleAdd() {
   dialogType.value = 'add'
   Object.assign(productForm, {
     name: '',
     category: '',
-    specification: '',
+    color: '',
+    size: '',
     unit: '',
     quantity: 0,
     alertThreshold: 0,
-    location: '',
+    locations: [],
     price: 0,
     costPrice: 0,
     description: ''
@@ -333,9 +411,10 @@ function handleEdit(row) {
   Object.assign(productForm, {
     name: row.name,
     category: row.category,
-    specification: row.specification,
+    color: row.color || '',
+    size: row.size || '',
     unit: row.unit,
-    location: row.location,
+    locations: row.locations || [],
     price: row.price,
     costPrice: row.costPrice,
     description: row.description
@@ -486,5 +565,124 @@ async function handleDelete(row) {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.qty-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  transition: all 0.25s ease;
+  position: relative;
+}
+.qty-badge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.qty-badge:hover::before {
+  opacity: 1;
+}
+.qty-normal {
+  color: #0d7377;
+  background: linear-gradient(135deg, #e8f7f6 0%, #d4f4ed 100%);
+  box-shadow: 0 2px 6px rgba(13, 115, 119, 0.12), inset 0 -2px 0 rgba(13, 115, 119, 0.08);
+}
+.qty-normal:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 115, 119, 0.18);
+}
+.qty-low {
+  color: #c0392b;
+  background: linear-gradient(135deg, #fef3f2 0%, #fdeaea 100%);
+  box-shadow: 0 2px 6px rgba(192, 57, 43, 0.15), inset 0 -2px 0 rgba(192, 57, 43, 0.08);
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+.qty-low:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(192, 57, 43, 0.22);
+}
+.qty-zero {
+  color: #95a5a6;
+  background: linear-gradient(135deg, #f4f6f7 0%, #eaeded 100%);
+  box-shadow: 0 2px 6px rgba(149, 165, 166, 0.1);
+}
+
+@keyframes pulse-warning {
+  0%, 100% { box-shadow: 0 2px 6px rgba(192, 57, 43, 0.15); }
+  50% { box-shadow: 0 2px 14px rgba(192, 57, 43, 0.35); }
+}
+
+.location-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    hsl(calc(210 + var(--chip-index) * 22), 45%, 96%) 0%,
+    hsl(calc(200 + var(--chip-index) * 22), 40%, 91%) 100%
+  );
+  border: 1px solid hsl(calc(210 + var(--chip-index) * 22), 30%, 85%);
+  box-shadow:
+    0 1px 3px hsla(calc(210 + var(--chip-index) * 22), 30%, 50%, 0.06),
+    0 1px 0 hsla(calc(210 + var(--chip-index) * 22), 30%, 95%, 0.9) inset;
+}
+.location-chip:hover {
+  transform: translateY(-1.5px) scale(1.03);
+  box-shadow:
+    0 4px 10px hsla(calc(210 + var(--chip-index) * 22), 30%, 45%, 0.14),
+    0 1px 0 hsla(calc(210 + var(--chip-index) * 22), 30%, 95%, 0.9) inset;
+  border-color: hsl(calc(210 + var(--chip-index) * 22), 35%, 72%);
+}
+.loc-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  filter: grayscale(0.15);
+}
+.loc-name {
+  font-weight: 600;
+  color: #2c3e50;
+  letter-spacing: 0.3px;
+}
+.loc-qty {
+  color: #5d6d7e;
+  font-size: 11px;
+  padding-left: 5px;
+  border-left: 1.5px solid rgba(93, 109, 126, 0.2);
+}
+.loc-qty em {
+  font-style: normal;
+  font-weight: 700;
+  color: #2980b9;
+  font-size: 12px;
+}
+.loc-empty {
+  color: #c0c4cc;
+  font-style: italic;
+  font-size: 13px;
 }
 </style>

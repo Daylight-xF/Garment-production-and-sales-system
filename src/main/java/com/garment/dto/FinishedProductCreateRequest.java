@@ -12,7 +12,9 @@ public class FinishedProductCreateRequest {
 
     private String category;
 
-    private String specification;
+    private String color;
+
+    private String size;
 
     private String unit;
 

@@ -148,6 +148,9 @@
             <template v-if="isEditApproved" #prefix>
               <el-icon><Lock /></el-icon>
             </template>
+            <template v-if="dialogType === 'add'" #suffix>
+              <el-icon class="refresh-btn" title="刷新批次号" @click="refreshBatchNo"><RefreshRight /></el-icon>
+            </template>
           </el-input>
         </el-form-item>
         <el-form-item label="选择产品" prop="productDefinitionId">
@@ -407,7 +410,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lock } from '@element-plus/icons-vue'
+import { Lock, RefreshRight } from '@element-plus/icons-vue'
 import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan, startProduction, completePlan, getPlanTasks, updateTaskProgress } from '../../api/production'
 import { getProductDefinitionList } from '../../api/productDefinition'
 
@@ -557,24 +560,34 @@ function getCurrentProduct() {
   return productDefinitionList.value.find(p => p.id === planForm.productDefinitionId)
 }
 
-function generateUniqueBatchNo() {
+function generateBatchNo() {
   const now = new Date()
   const dateStr = now.getFullYear().toString() +
     String(now.getMonth() + 1).padStart(2, '0') +
     String(now.getDate()).padStart(2, '0')
   const randomNum = Math.floor(1000 + Math.random() * 9000)
-  const batchNo = `PC-${dateStr}-${randomNum}`
-  const isDuplicate = planList.value.some(p => p.batchNo === batchNo)
-  if (isDuplicate) {
-    return generateUniqueBatchNo()
+  return `PC-${dateStr}-${randomNum}`
+}
+
+function generateUniqueBatchNo() {
+  let attempts = 0
+  while (attempts < 100) {
+    const batchNo = generateBatchNo()
+    const isDuplicate = planList.value.some(p => p.batchNo === batchNo)
+    if (!isDuplicate) return batchNo
+    attempts++
   }
-  return batchNo
+  return generateBatchNo()
+}
+
+function refreshBatchNo() {
+  planForm.batchNo = generateUniqueBatchNo()
 }
 
 function handleAdd() {
   dialogType.value = 'add'
   Object.assign(planForm, {
-    batchNo: generateUniqueBatchNo(),
+    batchNo: generateBatchNo(),
     productDefinitionId: '',
     productName: '',
     quantity: 1,
@@ -612,6 +625,23 @@ async function handleSubmit() {
   if (!form) return
   await form.validate(async (valid) => {
     if (!valid) return
+
+    if (dialogType.value === 'add') {
+      const isDuplicate = planList.value.some(
+        p => p.batchNo === planForm.batchNo && (!currentPlan.value.id || p.id !== currentPlan.value.id)
+      )
+      if (isDuplicate) {
+        try {
+          await ElMessageBox.confirm(
+            '当前批次号已存在，是否继续添加？',
+            '批次号重复提示',
+            { confirmButtonText: '是', cancelButtonText: '否', type: 'warning' }
+          )
+        } catch (error) {
+          return
+        }
+      }
+    }
 
     if (dialogType.value === 'edit' && isEditApproved.value) {
       const qtyDiff = planForm.quantity - originalQuantity.value
@@ -913,5 +943,13 @@ function disabledEndDate(time) {
   color: #409eff;
   min-width: 50px;
   text-align: right;
+}
+.refresh-btn {
+  cursor: pointer;
+  color: #909399;
+  transition: color 0.2s;
+}
+.refresh-btn:hover {
+  color: #409eff;
 }
 </style>

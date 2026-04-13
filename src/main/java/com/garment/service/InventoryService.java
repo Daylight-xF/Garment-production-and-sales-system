@@ -39,4 +39,8 @@ public interface InventoryService {
     RawMaterialVO setRawMaterialThreshold(String id, ThresholdRequest request);
 
     FinishedProductVO setFinishedProductThreshold(String id, ThresholdRequest request);
+
+    RawMaterialVO moveRawMaterialLocation(String id, MoveLocationRequest request);
+
+    void fifoDeductRawMaterial(String materialId, int quantity, String reason);
 }

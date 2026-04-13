@@ -198,4 +198,12 @@ public class InventoryController {
         FinishedProductVO vo = inventoryService.setFinishedProductThreshold(id, request);
         return Result.success(vo);
     }
+
+    @PostMapping("/raw-materials/{id}/move-location")
+    @PreAuthorize("hasAuthority('INVENTORY_IN')")
+    public Result<RawMaterialVO> moveRawMaterialLocation(@PathVariable String id,
+                                                          @Valid @RequestBody MoveLocationRequest request) {
+        RawMaterialVO vo = inventoryService.moveRawMaterialLocation(id, request);
+        return Result.success(vo);
+    }
 }

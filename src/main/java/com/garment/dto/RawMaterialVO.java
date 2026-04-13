@@ -5,7 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.garment.model.LocationInfo;
+
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -20,7 +23,9 @@ public class RawMaterialVO {
     private String unit;
     private Integer quantity;
     private Integer alertThreshold;
-    private String location;
+
+    private List<LocationInfo> locations;
+
     private String supplier;
     private Double price;
     private String description;

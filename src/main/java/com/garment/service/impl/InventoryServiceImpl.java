@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
+@Transactional
 public class InventoryServiceImpl implements InventoryService {
 
     private final RawMaterialRepository rawMaterialRepository;
@@ -77,8 +79,18 @@ public class InventoryServiceImpl implements InventoryService {
         material.setUnit(request.getUnit());
         material.setQuantity(request.getQuantity() != null ? request.getQuantity() : 0);
         material.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
-        material.setLocation(request.getLocation());
         material.setSupplier(request.getSupplier());
+
+        if (StringUtils.hasText(request.getLocation())) {
+            List<LocationInfo> locations = new ArrayList<>();
+            LocationInfo info = new LocationInfo();
+            info.setLocation(request.getLocation());
+            info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
+            info.setCreatedAt(new Date());
+            locations.add(info);
+            material.setLocations(locations);
+        }
+
         material.setPrice(request.getPrice());
         material.setDescription(request.getDescription());
 
@@ -103,8 +115,25 @@ public class InventoryServiceImpl implements InventoryService {
         if (request.getUnit() != null) {
             material.setUnit(request.getUnit());
         }
-        if (request.getLocation() != null) {
-            material.setLocation(request.getLocation());
+        if (StringUtils.hasText(request.getLocation())) {
+            List<LocationInfo> locations = material.getLocations();
+            if (locations == null) {
+                locations = new ArrayList<>();
+            }
+            LocationInfo existing = locations.stream()
+                    .filter(l -> request.getLocation().equals(l.getLocation()))
+                    .findFirst()
+                    .orElse(null);
+            if (existing != null) {
+                existing.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
+            } else {
+                LocationInfo info = new LocationInfo();
+                info.setLocation(request.getLocation());
+                info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
+                info.setCreatedAt(new Date());
+                locations.add(info);
+            }
+            material.setLocations(locations);
         }
         if (request.getSupplier() != null) {
             material.setSupplier(request.getSupplier());
@@ -159,11 +188,11 @@ public class InventoryServiceImpl implements InventoryService {
         FinishedProduct product = new FinishedProduct();
         product.setName(request.getName());
         product.setCategory(request.getCategory());
-        product.setSpecification(request.getSpecification());
+        product.setColor(request.getColor());
+        product.setSize(request.getSize());
         product.setUnit(request.getUnit());
         product.setQuantity(request.getQuantity() != null ? request.getQuantity() : 0);
         product.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
-        product.setLocation(request.getLocation());
         product.setPrice(request.getPrice());
         product.setCostPrice(request.getCostPrice());
         product.setDescription(request.getDescription());
@@ -183,14 +212,14 @@ public class InventoryServiceImpl implements InventoryService {
         if (request.getCategory() != null) {
             product.setCategory(request.getCategory());
         }
-        if (request.getSpecification() != null) {
-            product.setSpecification(request.getSpecification());
+        if (request.getColor() != null) {
+            product.setColor(request.getColor());
+        }
+        if (request.getSize() != null) {
+            product.setSize(request.getSize());
         }
         if (request.getUnit() != null) {
             product.setUnit(request.getUnit());
-        }
-        if (request.getLocation() != null) {
-            product.setLocation(request.getLocation());
         }
         if (request.getPrice() != null) {
             product.setPrice(request.getPrice());
@@ -226,7 +255,17 @@ public class InventoryServiceImpl implements InventoryService {
                         log.error("原材料不存在，ID: {}", request.getItemId());
                         return new BusinessException("原材料不存在，ID: " + request.getItemId());
                     });
-            material.setQuantity(material.getQuantity() + request.getQuantity());
+            if (request.getReason() != null && request.getReason().contains("位置:")) {
+                String location = extractLocation(request.getReason());
+                if (location != null && !location.isEmpty()) {
+                    addOrUpdateRawMaterialLocation(material, location, request.getQuantity());
+                    log.info("更新原材料存放位置: {} 数量: {}", location, request.getQuantity());
+                }
+            } else {
+                material.setQuantity(material.getQuantity() + request.getQuantity());
+            }
+
+            recalculateRawMaterialQuantity(material);
             rawMaterialRepository.save(material);
             itemName = material.getName();
             log.info("原材料入库成功 - 名称: {}, 新库存: {}", itemName, material.getQuantity());
@@ -249,17 +288,20 @@ public class InventoryServiceImpl implements InventoryService {
             }
 
             FinishedProduct product = findOrCreateFinishedProduct(plan);
-            int oldQuantity = product.getQuantity();
-            product.setQuantity(product.getQuantity() + request.getQuantity());
 
+            int oldQuantity = 0;
             if (request.getReason() != null && request.getReason().contains("位置:")) {
                 String location = extractLocation(request.getReason());
                 if (location != null && !location.isEmpty()) {
-                    product.setLocation(location);
-                    log.info("更新成品存放位置: {}", location);
+                    addOrUpdateLocation(product, location, request.getQuantity());
+                    log.info("更新成品存放位置: {} 数量: {}", location, request.getQuantity());
                 }
+            } else {
+                oldQuantity = product.getQuantity();
+                product.setQuantity(oldQuantity + request.getQuantity());
             }
 
+            recalculateFinishedProductQuantity(product);
             finishedProductRepository.save(product);
             itemName = product.getName();
 
@@ -296,14 +338,40 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public InventoryRecordVO stockOut(StockInOutRequest request, String operatorId) {
+        log.info("开始出库操作 - 类型: {}, 物品ID: {}, 数量: {}, 操作人: {}",
+                request.getItemType(), request.getItemId(), request.getQuantity(), operatorId);
+
         String itemName = "";
         if ("RAW_MATERIAL".equals(request.getItemType())) {
             RawMaterial material = rawMaterialRepository.findById(request.getItemId())
                     .orElseThrow(() -> new BusinessException("原材料不存在"));
-            if (material.getQuantity() < request.getQuantity()) {
-                throw new BusinessException("库存不足，当前库存：" + material.getQuantity());
+
+            String location = extractLocation(request.getReason());
+            if (StringUtils.hasText(location) && material.getLocations() != null && !material.getLocations().isEmpty()) {
+                LocationInfo targetLoc = material.getLocations().stream()
+                        .filter(l -> location.equals(l.getLocation()))
+                        .findFirst()
+                        .orElse(null);
+                if (targetLoc == null) {
+                    throw new BusinessException("出库位置不存在: " + location);
+                }
+                if (targetLoc.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "位置 %s 库存不足，当前可用: %d，请求出库: %d",
+                            location, targetLoc.getQuantity(), request.getQuantity()));
+                }
+                log.info("原材料出库 - 名称: {}, 位置: {}, 出库数量: {}, 位置原库存: {}",
+                        material.getName(), location, request.getQuantity(), targetLoc.getQuantity());
+                targetLoc.setQuantity(targetLoc.getQuantity() - request.getQuantity());
+                material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+            } else {
+                if (material.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException("库存不足，当前库存：" + material.getQuantity());
+                }
+                material.setQuantity(material.getQuantity() - request.getQuantity());
             }
-            material.setQuantity(material.getQuantity() - request.getQuantity());
+
+            recalculateRawMaterialQuantity(material);
             rawMaterialRepository.save(material);
             itemName = material.getName();
 
@@ -311,13 +379,40 @@ public class InventoryServiceImpl implements InventoryService {
                 createAlertIfNeeded("RAW_MATERIAL", material.getId(), material.getName(),
                         material.getQuantity(), material.getAlertThreshold());
             }
+
+            log.info("原材料出库成功 - 名称: {}, 原材料ID: {}, 出库数量: {}, 新库存: {}, 剩余位置数: {}",
+                    itemName, material.getId(), request.getQuantity(), material.getQuantity(),
+                    material.getLocations() != null ? material.getLocations().size() : 0);
         } else if ("FINISHED_PRODUCT".equals(request.getItemType())) {
             FinishedProduct product = finishedProductRepository.findById(request.getItemId())
                     .orElseThrow(() -> new BusinessException("成品不存在"));
-            if (product.getQuantity() < request.getQuantity()) {
-                throw new BusinessException("库存不足，当前库存：" + product.getQuantity());
+
+            String location = extractLocation(request.getReason());
+            if (StringUtils.hasText(location) && product.getLocations() != null && !product.getLocations().isEmpty()) {
+                LocationInfo targetLoc = product.getLocations().stream()
+                        .filter(l -> location.equals(l.getLocation()))
+                        .findFirst()
+                        .orElse(null);
+                if (targetLoc == null) {
+                    throw new BusinessException("出库位置不存在: " + location);
+                }
+                if (targetLoc.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "位置 %s 库存不足，当前可用: %d，请求出库: %d",
+                            location, targetLoc.getQuantity(), request.getQuantity()));
+                }
+                log.info("成品出库 - 名称: {}, 位置: {}, 出库数量: {}, 位置原库存: {}",
+                        product.getName(), location, request.getQuantity(), targetLoc.getQuantity());
+                targetLoc.setQuantity(targetLoc.getQuantity() - request.getQuantity());
+                product.getLocations().removeIf(l -> l.getQuantity() <= 0);
+            } else {
+                if (product.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException("库存不足，当前库存：" + product.getQuantity());
+                }
+                product.setQuantity(product.getQuantity() - request.getQuantity());
             }
-            product.setQuantity(product.getQuantity() - request.getQuantity());
+
+            recalculateFinishedProductQuantity(product);
             finishedProductRepository.save(product);
             itemName = product.getName();
 
@@ -325,6 +420,10 @@ public class InventoryServiceImpl implements InventoryService {
                 createAlertIfNeeded("FINISHED_PRODUCT", product.getId(), product.getName(),
                         product.getQuantity(), product.getAlertThreshold());
             }
+
+            log.info("成品出库成功 - 名称: {}, 成品ID: {}, 出库数量: {}, 新库存: {}, 剩余位置数: {}",
+                    itemName, product.getId(), request.getQuantity(), product.getQuantity(),
+                    product.getLocations() != null ? product.getLocations().size() : 0);
         } else {
             throw new BusinessException("无效的物品类型");
         }
@@ -468,12 +567,17 @@ public class InventoryServiceImpl implements InventoryService {
                 .collect(Collectors.toList());
 
         if (!existing.isEmpty()) {
-            return existing.get(0);
+            FinishedProduct product = existing.get(0);
+            migrateLegacyLocation(product);
+            return product;
         }
 
         FinishedProduct newProduct = new FinishedProduct();
         newProduct.setProductCode(searchCode);
         newProduct.setName(searchName);
+        newProduct.setColor(plan.getColor());
+        newProduct.setSize(plan.getSize());
+        newProduct.setBatchNo(plan.getBatchNo());
         newProduct.setQuantity(0);
         newProduct.setUnit(plan.getUnit());
         newProduct.setDescription("自动创建 - 来源: " + plan.getBatchNo());
@@ -493,7 +597,147 @@ public class InventoryServiceImpl implements InventoryService {
         return reason.substring(startIndex, endIndex).trim();
     }
 
+    private void recalculateRawMaterialQuantity(RawMaterial material) {
+        int total = 0;
+        if (material.getLocations() != null) {
+            total = material.getLocations().stream()
+                    .mapToInt(l -> l.getQuantity() != null ? l.getQuantity() : 0)
+                    .sum();
+        }
+        material.setQuantity(total);
+        log.debug("重新计算原材料总库存 - ID: {}, 新总量: {}, 位置数: {}",
+                material.getId(), total, material.getLocations() != null ? material.getLocations().size() : 0);
+    }
+
+    private void recalculateAndFixQuantity(RawMaterial material, RawMaterialRepository repo) {
+        int correctTotal = 0;
+        if (material.getLocations() != null) {
+            correctTotal = material.getLocations().stream()
+                    .mapToInt(l -> l.getQuantity() != null ? l.getQuantity() : 0)
+                    .sum();
+        }
+        if (material.getQuantity() == null || material.getQuantity() != correctTotal) {
+            log.warn("检测到原材料数量不一致 - ID: {}, 原始quantity: {}, 正确总量: {}, 自动修正",
+                    material.getId(), material.getQuantity(), correctTotal);
+            material.setQuantity(correctTotal);
+            repo.save(material);
+        }
+    }
+
+    private void recalculateAndFixFinishedProductQuantity(FinishedProduct product, FinishedProductRepository repo) {
+        int correctTotal = 0;
+        if (product.getLocations() != null) {
+            correctTotal = product.getLocations().stream()
+                    .mapToInt(l -> l.getQuantity() != null ? l.getQuantity() : 0)
+                    .sum();
+        }
+        if (product.getQuantity() == null || product.getQuantity() != correctTotal) {
+            log.warn("检测到成品数量不一致 - ID: {}, 原始quantity: {}, 正确总量: {}, 自动修正",
+                    product.getId(), product.getQuantity(), correctTotal);
+            product.setQuantity(correctTotal);
+            repo.save(product);
+        }
+    }
+
+    private void recalculateFinishedProductQuantity(FinishedProduct product) {
+        int total = 0;
+        if (product.getLocations() != null) {
+            total = product.getLocations().stream()
+                    .mapToInt(l -> l.getQuantity() != null ? l.getQuantity() : 0)
+                    .sum();
+        }
+        product.setQuantity(total);
+        log.debug("重新计算成品总库存 - ID: {}, 新总量: {}, 位置数: {}",
+                product.getId(), total, product.getLocations() != null ? product.getLocations().size() : 0);
+    }
+
+    private void addOrUpdateLocation(FinishedProduct product, String location, int quantity) {
+        if (product.getLocations() == null) {
+            product.setLocations(new ArrayList<>());
+        }
+        LocationInfo existing = product.getLocations().stream()
+                .filter(l -> location.equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + quantity);
+        } else {
+            LocationInfo newLocation = new LocationInfo();
+            newLocation.setLocation(location);
+            newLocation.setQuantity(quantity);
+            newLocation.setCreatedAt(new Date());
+            product.getLocations().add(newLocation);
+        }
+    }
+
+    private void migrateLegacyLocation(FinishedProduct product) {
+        if (product.getLocations() != null && !product.getLocations().isEmpty()) {
+            return;
+        }
+        try {
+            java.lang.reflect.Field legacyField = FinishedProduct.class.getDeclaredField("location");
+            legacyField.setAccessible(true);
+            String legacyLocation = (String) legacyField.get(product);
+            if (StringUtils.hasText(legacyLocation)) {
+                List<LocationInfo> locations = new ArrayList<>();
+                LocationInfo info = new LocationInfo();
+                info.setLocation(legacyLocation);
+                info.setQuantity(product.getQuantity() != null ? product.getQuantity() : 0);
+                locations.add(info);
+                product.setLocations(locations);
+                finishedProductRepository.save(product);
+                log.info("迁移旧版存放位置数据: {} -> {}", legacyLocation, locations);
+            }
+        } catch (Exception e) {
+            log.warn("迁移旧版存放位置数据失败, 产品ID: {}", product.getId(), e);
+        }
+    }
+
+    private void addOrUpdateRawMaterialLocation(RawMaterial material, String location, int quantity) {
+        if (material.getLocations() == null) {
+            material.setLocations(new ArrayList<>());
+        }
+        LocationInfo existing = material.getLocations().stream()
+                .filter(l -> location.equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + quantity);
+        } else {
+            LocationInfo newLocation = new LocationInfo();
+            newLocation.setLocation(location);
+            newLocation.setQuantity(quantity);
+            newLocation.setCreatedAt(new Date());
+            material.getLocations().add(newLocation);
+        }
+    }
+
+    private void migrateLegacyRawMaterialLocation(RawMaterial material) {
+        if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+            return;
+        }
+        try {
+            java.lang.reflect.Field legacyField = RawMaterial.class.getDeclaredField("location");
+            legacyField.setAccessible(true);
+            String legacyLocation = (String) legacyField.get(material);
+            if (StringUtils.hasText(legacyLocation)) {
+                List<LocationInfo> locations = new ArrayList<>();
+                LocationInfo info = new LocationInfo();
+                info.setLocation(legacyLocation);
+                info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
+                locations.add(info);
+                material.setLocations(locations);
+                rawMaterialRepository.save(material);
+                log.info("迁移原材料旧版存放位置数据: {} -> {}", legacyLocation, locations);
+            }
+        } catch (Exception e) {
+            log.warn("迁移原材料旧版存放位置数据失败, 原材料ID: {}", material.getId(), e);
+        }
+    }
+
     private RawMaterialVO convertToRawMaterialVO(RawMaterial material) {
+        migrateLegacyRawMaterialLocation(material);
+        recalculateAndFixQuantity(material, rawMaterialRepository);
         return RawMaterialVO.builder()
                 .id(material.getId())
                 .name(material.getName())
@@ -502,7 +746,7 @@ public class InventoryServiceImpl implements InventoryService {
                 .unit(material.getUnit())
                 .quantity(material.getQuantity())
                 .alertThreshold(material.getAlertThreshold())
-                .location(material.getLocation())
+                .locations(material.getLocations())
                 .supplier(material.getSupplier())
                 .price(material.getPrice())
                 .description(material.getDescription())
@@ -512,15 +756,20 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private FinishedProductVO convertToFinishedProductVO(FinishedProduct product) {
+        migrateLegacyLocation(product);
+        recalculateAndFixFinishedProductQuantity(product, finishedProductRepository);
         return FinishedProductVO.builder()
                 .id(product.getId())
+                .productCode(product.getProductCode())
                 .name(product.getName())
                 .category(product.getCategory())
-                .specification(product.getSpecification())
+                .color(product.getColor())
+                .size(product.getSize())
+                .batchNo(product.getBatchNo())
                 .unit(product.getUnit())
                 .quantity(product.getQuantity())
                 .alertThreshold(product.getAlertThreshold())
-                .location(product.getLocation())
+                .locations(product.getLocations())
                 .price(product.getPrice())
                 .costPrice(product.getCostPrice())
                 .description(product.getDescription())
@@ -557,5 +806,139 @@ public class InventoryServiceImpl implements InventoryService {
                 .handleTime(alert.getHandleTime())
                 .handleBy(alert.getHandleBy())
                 .build();
+    }
+
+    @Override
+    public RawMaterialVO moveRawMaterialLocation(String id, MoveLocationRequest request) {
+        log.info("开始跨库移动 - 原材料ID: {}, 源位置: {}, 目标位置: {}, 移动数量: {}",
+                id, request.getSourceLocation(), request.getTargetLocation(), request.getQuantity());
+
+        if (!StringUtils.hasText(request.getSourceLocation()) || !StringUtils.hasText(request.getTargetLocation())) {
+            throw new BusinessException("源位置和目标位置不能为空");
+        }
+        if (request.getSourceLocation().equals(request.getTargetLocation())) {
+            throw new BusinessException("源位置和目标位置不能相同");
+        }
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new BusinessException("移动数量必须大于0");
+        }
+
+        RawMaterial material = rawMaterialRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("原材料不存在"));
+
+        if (material.getLocations() == null || material.getLocations().isEmpty()) {
+            throw new BusinessException("该原材料暂无存放位置记录，无法执行跨库移动");
+        }
+
+        LocationInfo sourceLoc = material.getLocations().stream()
+                .filter(l -> request.getSourceLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (sourceLoc == null) {
+            throw new BusinessException("源位置不存在: " + request.getSourceLocation());
+        }
+        if (sourceLoc.getQuantity() < request.getQuantity()) {
+            throw new BusinessException(String.format(
+                    "源位置 %s 库存不足，当前可用: %d，请求移动: %d",
+                    request.getSourceLocation(), sourceLoc.getQuantity(), request.getQuantity()));
+        }
+
+        sourceLoc.setQuantity(sourceLoc.getQuantity() - request.getQuantity());
+        log.info("源位置 {} 减少后剩余: {}", sourceLoc.getLocation(), sourceLoc.getQuantity());
+
+        LocationInfo targetLoc = material.getLocations().stream()
+                .filter(l -> request.getTargetLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (targetLoc != null) {
+            targetLoc.setQuantity(targetLoc.getQuantity() + request.getQuantity());
+            log.info("目标位置 {} 已存在，增加后: {}", targetLoc.getLocation(), targetLoc.getQuantity());
+        } else {
+            LocationInfo newTarget = new LocationInfo();
+            newTarget.setLocation(request.getTargetLocation());
+            newTarget.setQuantity(request.getQuantity());
+            newTarget.setCreatedAt(new Date());
+            material.getLocations().add(newTarget);
+            log.info("创建新目标位置 {}: {}", request.getTargetLocation(), request.getQuantity());
+        }
+
+        material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
+        recalculateRawMaterialQuantity(material);
+
+        RawMaterial saved = rawMaterialRepository.save(material);
+
+        log.info("跨库移动完成 - 原材料ID: {}, 新总量: {}, 剩余位置数: {}",
+                saved.getId(), saved.getQuantity(),
+                saved.getLocations() != null ? saved.getLocations().size() : 0);
+
+        return convertToRawMaterialVO(saved);
+    }
+
+    @Override
+    public void fifoDeductRawMaterial(String materialId, int quantity, String reason) {
+        log.info("FIFO扣减原材料 - ID: {}, 扣减数量: {}, 原因: {}", materialId, quantity, reason);
+
+        RawMaterial material = rawMaterialRepository.findById(materialId)
+                .orElseThrow(() -> new BusinessException("原材料不存在"));
+
+        if (material.getLocations() == null || material.getLocations().isEmpty()) {
+            throw new BusinessException("该原材料暂无存放位置记录，无法执行FIFO扣减");
+        }
+
+        List<LocationInfo> sortedLocations = new ArrayList<>(material.getLocations());
+        sortedLocations.sort((a, b) -> {
+            Date aTime = a.getCreatedAt() != null ? a.getCreatedAt() : new Date(0);
+            Date bTime = b.getCreatedAt() != null ? b.getCreatedAt() : new Date(0);
+            return aTime.compareTo(bTime);
+        });
+
+        int remaining = quantity;
+        StringBuilder deductionLog = new StringBuilder();
+
+        for (LocationInfo loc : sortedLocations) {
+            if (remaining <= 0) break;
+
+            int available = loc.getQuantity() != null ? loc.getQuantity() : 0;
+            if (available <= 0) continue;
+
+            int deduct = Math.min(available, remaining);
+            loc.setQuantity(available - deduct);
+            remaining -= deduct;
+
+            log.info("FIFO扣减 - 位置: {}, 原库存: {}, 扣减: {}, 剩余: {}",
+                    loc.getLocation(), available, deduct, loc.getQuantity());
+            deductionLog.append(loc.getLocation()).append("(").append(deduct).append(")");
+        }
+
+        if (remaining > 0) {
+            throw new BusinessException(String.format(
+                    "FIFO扣减失败：位置总库存不足，需扣减 %d，实际可扣减 %d",
+                    quantity, quantity - remaining));
+        }
+
+        material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
+        recalculateRawMaterialQuantity(material);
+        rawMaterialRepository.save(material);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType("RAW_MATERIAL");
+        record.setItemId(materialId);
+        record.setItemName(material.getName());
+        record.setQuantity(-quantity);
+        record.setOperator("SYSTEM");
+        record.setOperatorName("系统自动");
+        record.setReason(reason + " [FIFO:" + deductionLog + "]");
+        inventoryRecordRepository.save(record);
+
+        if (material.getAlertThreshold() != null && material.getQuantity() <= material.getAlertThreshold()) {
+            createAlertIfNeeded("RAW_MATERIAL", material.getId(), material.getName(),
+                    material.getQuantity(), material.getAlertThreshold());
+        }
+
+        log.info("FIFO扣减完成 - 原材料ID: {}, 新总量: {}, 扣减详情: {}",
+                material.getId(), material.getQuantity(), deductionLog);
     }
 }

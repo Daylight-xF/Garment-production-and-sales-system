@@ -9,6 +9,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -31,7 +32,7 @@ public class RawMaterial {
 
     private Integer alertThreshold;
 
-    private String location;
+    private List<LocationInfo> locations;
 
     private String supplier;
 

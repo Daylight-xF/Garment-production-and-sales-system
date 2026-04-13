@@ -55,10 +55,6 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
     @Override
     public PlanVO createPlan(PlanCreateRequest request, String userId) {
-        if (productionPlanRepository.existsByBatchNo(request.getBatchNo())) {
-            throw new BusinessException("批次号已存在：" + request.getBatchNo());
-        }
-
         ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                 .orElseThrow(() -> new BusinessException("产品定义不存在"));
 
@@ -117,12 +113,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             double neededQty = material.getQuantity() * planQuantity;
             int deductQty = (int) Math.round(neededQty);
 
-            StockInOutRequest stockOutRequest = new StockInOutRequest();
-            stockOutRequest.setItemType("RAW_MATERIAL");
-            stockOutRequest.setItemId(material.getMaterialId());
-            stockOutRequest.setQuantity(deductQty);
-            stockOutRequest.setReason("生产计划-" + batchNo + "-扣减");
-            inventoryService.stockOut(stockOutRequest, "system");
+            inventoryService.fifoDeductRawMaterial(material.getMaterialId(), deductQty,
+                    "生产计划-" + batchNo + "-FIFO扣减");
         }
     }
 

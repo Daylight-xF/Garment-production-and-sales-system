@@ -5,7 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.garment.model.LocationInfo;
+
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -14,13 +17,18 @@ import java.util.Date;
 public class FinishedProductVO {
 
     private String id;
+    private String productCode;
     private String name;
     private String category;
-    private String specification;
+    private String color;
+    private String size;
+    private String batchNo;
     private String unit;
     private Integer quantity;
     private Integer alertThreshold;
-    private String location;
+
+    private List<LocationInfo> locations;
+
     private Double price;
     private Double costPrice;
     private String description;
