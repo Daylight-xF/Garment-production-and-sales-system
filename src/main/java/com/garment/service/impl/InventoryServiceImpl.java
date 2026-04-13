@@ -568,7 +568,6 @@ public class InventoryServiceImpl implements InventoryService {
 
         if (!existing.isEmpty()) {
             FinishedProduct product = existing.get(0);
-            migrateLegacyLocation(product);
             return product;
         }
 
@@ -670,29 +669,6 @@ public class InventoryServiceImpl implements InventoryService {
         }
     }
 
-    private void migrateLegacyLocation(FinishedProduct product) {
-        if (product.getLocations() != null && !product.getLocations().isEmpty()) {
-            return;
-        }
-        try {
-            java.lang.reflect.Field legacyField = FinishedProduct.class.getDeclaredField("location");
-            legacyField.setAccessible(true);
-            String legacyLocation = (String) legacyField.get(product);
-            if (StringUtils.hasText(legacyLocation)) {
-                List<LocationInfo> locations = new ArrayList<>();
-                LocationInfo info = new LocationInfo();
-                info.setLocation(legacyLocation);
-                info.setQuantity(product.getQuantity() != null ? product.getQuantity() : 0);
-                locations.add(info);
-                product.setLocations(locations);
-                finishedProductRepository.save(product);
-                log.info("迁移旧版存放位置数据: {} -> {}", legacyLocation, locations);
-            }
-        } catch (Exception e) {
-            log.warn("迁移旧版存放位置数据失败, 产品ID: {}", product.getId(), e);
-        }
-    }
-
     private void addOrUpdateRawMaterialLocation(RawMaterial material, String location, int quantity) {
         if (material.getLocations() == null) {
             material.setLocations(new ArrayList<>());
@@ -712,31 +688,7 @@ public class InventoryServiceImpl implements InventoryService {
         }
     }
 
-    private void migrateLegacyRawMaterialLocation(RawMaterial material) {
-        if (material.getLocations() != null && !material.getLocations().isEmpty()) {
-            return;
-        }
-        try {
-            java.lang.reflect.Field legacyField = RawMaterial.class.getDeclaredField("location");
-            legacyField.setAccessible(true);
-            String legacyLocation = (String) legacyField.get(material);
-            if (StringUtils.hasText(legacyLocation)) {
-                List<LocationInfo> locations = new ArrayList<>();
-                LocationInfo info = new LocationInfo();
-                info.setLocation(legacyLocation);
-                info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
-                locations.add(info);
-                material.setLocations(locations);
-                rawMaterialRepository.save(material);
-                log.info("迁移原材料旧版存放位置数据: {} -> {}", legacyLocation, locations);
-            }
-        } catch (Exception e) {
-            log.warn("迁移原材料旧版存放位置数据失败, 原材料ID: {}", material.getId(), e);
-        }
-    }
-
     private RawMaterialVO convertToRawMaterialVO(RawMaterial material) {
-        migrateLegacyRawMaterialLocation(material);
         recalculateAndFixQuantity(material, rawMaterialRepository);
         return RawMaterialVO.builder()
                 .id(material.getId())
@@ -756,7 +708,6 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private FinishedProductVO convertToFinishedProductVO(FinishedProduct product) {
-        migrateLegacyLocation(product);
         recalculateAndFixFinishedProductQuantity(product, finishedProductRepository);
         return FinishedProductVO.builder()
                 .id(product.getId())
