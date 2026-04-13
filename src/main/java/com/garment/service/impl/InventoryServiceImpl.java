@@ -876,6 +876,73 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     @Override
+    public FinishedProductVO moveFinishedProductLocation(String id, MoveLocationRequest request) {
+        log.info("开始跨库移动 - 成品ID: {}, 源位置: {}, 目标位置: {}, 移动数量: {}",
+                id, request.getSourceLocation(), request.getTargetLocation(), request.getQuantity());
+
+        if (!StringUtils.hasText(request.getSourceLocation()) || !StringUtils.hasText(request.getTargetLocation())) {
+            throw new BusinessException("源位置和目标位置不能为空");
+        }
+        if (request.getSourceLocation().equals(request.getTargetLocation())) {
+            throw new BusinessException("源位置和目标位置不能相同");
+        }
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new BusinessException("移动数量必须大于0");
+        }
+
+        FinishedProduct product = finishedProductRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("成品不存在"));
+
+        if (product.getLocations() == null || product.getLocations().isEmpty()) {
+            throw new BusinessException("该成品暂无存放位置记录，无法执行跨库移动");
+        }
+
+        LocationInfo sourceLoc = product.getLocations().stream()
+                .filter(l -> request.getSourceLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (sourceLoc == null) {
+            throw new BusinessException("源位置不存在: " + request.getSourceLocation());
+        }
+        if (sourceLoc.getQuantity() < request.getQuantity()) {
+            throw new BusinessException(String.format(
+                    "源位置 %s 库存不足，当前可用: %d，请求移动: %d",
+                    request.getSourceLocation(), sourceLoc.getQuantity(), request.getQuantity()));
+        }
+
+        sourceLoc.setQuantity(sourceLoc.getQuantity() - request.getQuantity());
+        log.info("源位置 {} 减少后剩余: {}", sourceLoc.getLocation(), sourceLoc.getQuantity());
+
+        LocationInfo targetLoc = product.getLocations().stream()
+                .filter(l -> request.getTargetLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (targetLoc != null) {
+            targetLoc.setQuantity(targetLoc.getQuantity() + request.getQuantity());
+            log.info("目标位置 {} 已存在，增加后: {}", targetLoc.getLocation(), targetLoc.getQuantity());
+        } else {
+            LocationInfo newTarget = new LocationInfo();
+            newTarget.setLocation(request.getTargetLocation());
+            newTarget.setQuantity(request.getQuantity());
+            newTarget.setCreatedAt(new Date());
+            product.getLocations().add(newTarget);
+            log.info("创建新目标位置 {}: {}", request.getTargetLocation(), request.getQuantity());
+        }
+
+        product.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
+        recalculateFinishedProductQuantity(product);
+
+        FinishedProduct saved = finishedProductRepository.save(product);
+
+        log.info("跨库移动完成 - 成品ID: {}, 新总量: {}, 剩余位置数: {}",
+                saved.getId(), saved.getQuantity(),
+                saved.getLocations() != null ? saved.getLocations().size() : 0);
+
+        return convertToFinishedProductVO(saved);
+    }
+
+    @Override
     public void fifoDeductRawMaterial(String materialId, int quantity, String reason) {
         log.info("FIFO扣减原材料 - ID: {}, 扣减数量: {}, 原因: {}", materialId, quantity, reason);
 

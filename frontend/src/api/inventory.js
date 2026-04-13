@@ -139,3 +139,11 @@ export function moveRawMaterialLocation(id, data) {
     data
   })
 }
+
+export function moveFinishedProductLocation(id, data) {
+  return request({
+    url: `/inventory/finished-products/${id}/move-location`,
+    method: 'post',
+    data
+  })
+}

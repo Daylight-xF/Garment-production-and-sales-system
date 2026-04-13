@@ -42,5 +42,7 @@ public interface InventoryService {
 
     RawMaterialVO moveRawMaterialLocation(String id, MoveLocationRequest request);
 
+    FinishedProductVO moveFinishedProductLocation(String id, MoveLocationRequest request);
+
     void fifoDeductRawMaterial(String materialId, int quantity, String reason);
 }

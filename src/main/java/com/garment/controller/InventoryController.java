@@ -206,4 +206,12 @@ public class InventoryController {
         RawMaterialVO vo = inventoryService.moveRawMaterialLocation(id, request);
         return Result.success(vo);
     }
+
+    @PostMapping("/finished-products/{id}/move-location")
+    @PreAuthorize("hasAuthority('INVENTORY_IN')")
+    public Result<FinishedProductVO> moveFinishedProductLocation(@PathVariable String id,
+                                                                   @Valid @RequestBody MoveLocationRequest request) {
+        FinishedProductVO vo = inventoryService.moveFinishedProductLocation(id, request);
+        return Result.success(vo);
+    }
 }

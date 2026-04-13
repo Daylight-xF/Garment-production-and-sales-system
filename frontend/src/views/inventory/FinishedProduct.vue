@@ -171,21 +171,92 @@
           <el-input-number v-model="productForm.alertThreshold" :min="0" style="width: 100%" />
         </el-form-item>
         <el-form-item label="存放位置">
-          <div v-if="productForm.locations && productForm.locations.length > 0" class="location-container">
-            <div
-              v-for="(loc, index) in productForm.locations"
-              :key="index"
-              class="location-chip"
-              :style="{ '--chip-index': index }"
-            >
-              <span class="loc-icon">📦</span>
-              <span class="loc-name">{{ loc.location }}</span>
-              <span class="loc-qty">
-                <em>{{ loc.quantity }}</em>件
-              </span>
+          <el-input
+            v-if="dialogType === 'add'"
+            v-model="productForm.location"
+            placeholder="请输入初始存放位置，如：A区-01-03"
+          />
+          <template v-else>
+            <div v-if="productForm.locations && productForm.locations.length > 0" class="location-container">
+              <div
+                v-for="(loc, index) in productForm.locations"
+                :key="index"
+                class="location-chip"
+                :style="{ '--chip-index': index }"
+              >
+                <span class="loc-icon">📦</span>
+                <span class="loc-name">{{ loc.location }}</span>
+                <span class="loc-qty">
+                  <em>{{ loc.quantity }}</em>件
+                </span>
+                <el-icon
+                  class="loc-move-btn"
+                  title="移动库存到其他位置"
+                  @click.stop="openMovePanel(loc)"
+                ><Switch /></el-icon>
+              </div>
             </div>
-          </div>
-          <span v-else style="color: #909399; font-size: 13px;">暂无入库位置记录</span>
+            <span v-else style="color: #909399; font-size: 13px;">暂无入库位置记录，请通过入库操作添加</span>
+
+            <transition name="slide-fade">
+              <div v-if="movePanelVisible" class="move-panel">
+                <div class="move-panel-header">
+                  <span class="move-panel-title">
+                    <el-icon><Rank /></el-icon> 跨库移动
+                  </span>
+                  <el-icon class="move-panel-close" @click="closeMovePanel"><Close /></el-icon>
+                </div>
+                <div class="move-panel-body">
+                  <div class="move-row">
+                    <label>源位置</label>
+                    <span class="move-source">{{ moveForm.sourceLocation }}
+                      <small>(可用: {{ moveSourceMaxQty }})</small>
+                    </span>
+                  </div>
+                  <div class="move-row">
+                    <label>目标位置</label>
+                    <el-select
+                      v-model="moveForm.targetLocation"
+                      placeholder="选择目标库位"
+                      size="small"
+                      style="width: 200px"
+                    >
+                      <el-option
+                        v-for="(loc, idx) in availableTargetLocations"
+                        :key="idx"
+                        :label="loc.location"
+                        :value="loc.location"
+                      >
+                        {{ loc.location }} <span style="color:#909399;font-size:11px">(当前:{{ loc.quantity }})</span>
+                      </el-option>
+                    </el-select>
+                    <el-input
+                      v-model="moveForm.newLocation"
+                      placeholder="或输入新位置"
+                      size="small"
+                      style="width: 140px; margin-left: 4px;"
+                      clearable
+                    />
+                  </div>
+                  <div class="move-row">
+                    <label>移动数量</label>
+                    <el-input-number
+                      v-model="moveForm.quantity"
+                      :min="1"
+                      :max="moveSourceMaxQty"
+                      size="small"
+                      controls-position="right"
+                    />
+                    <span class="move-hint">最多可移动 {{ moveSourceMaxQty }} 件</span>
+                  </div>
+                </div>
+                <div class="move-panel-footer">
+                  <el-button size="small" @click="closeMovePanel">取消</el-button>
+                  <el-button type="primary" size="small" :loading="moveLoading" @click="handleMoveSubmit">确认移动</el-button>
+                </div>
+              </div>
+            </transition>
+          </template>
         </el-form-item>
         <el-form-item label="销售单价" prop="price">
           <el-input-number v-model="productForm.price" :min="0" :precision="2" style="width: 100%" />
@@ -221,8 +292,28 @@
         <el-form-item label="当前库存">
           <el-input :model-value="String(currentItem.quantity)" disabled />
         </el-form-item>
+        <el-form-item v-if="stockType === 'OUT' && currentItem.locations && currentItem.locations.length > 0" label="出库位置" prop="stockLocation">
+          <el-select
+              v-model="stockForm.stockLocation"
+              placeholder="请选择出库位置"
+              style="width: 100%"
+          >
+            <el-option
+                v-for="loc in currentItem.locations"
+                :key="loc.location"
+                :label="`${loc.location} (库存: ${loc.quantity})`"
+                :value="loc.location"
+            >
+              <span style="font-weight: 600">{{ loc.location }}</span>
+              <span style="color: #909399; font-size: 12px; margin-left: 8px; float: right">剩余 {{ loc.quantity }} 件</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="stockType === 'IN'" label="存放位置" prop="stockLocation">
+          <el-input v-model="stockForm.stockLocation" placeholder="请输入存放位置，如：A区-01-03" />
+        </el-form-item>
         <el-form-item label="数量" prop="quantity">
-          <el-input-number v-model="stockForm.quantity" :min="1" style="width: 100%" />
+          <el-input-number v-model="stockForm.quantity" :min="1" :max="stockMaxQuantity" style="width: 100%" />
         </el-form-item>
         <el-form-item label="原因" prop="reason">
           <el-input v-model="stockForm.reason" type="textarea" :rows="2" placeholder="请输入原因" />
@@ -262,8 +353,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Switch, Rank, Close } from '@element-plus/icons-vue'
 import {
   getFinishedProductList,
   createFinishedProduct,
@@ -271,7 +363,8 @@ import {
   deleteFinishedProduct,
   setFinishedProductThreshold,
   stockIn,
-  stockOut
+  stockOut,
+  moveFinishedProductLocation
 } from '../../api/inventory'
 
 const loading = ref(false)
@@ -289,7 +382,8 @@ const thresholdFormRef = ref(null)
 
 const currentItem = reactive({
   name: '',
-  quantity: 0
+  quantity: 0,
+  locations: []
 })
 
 const searchForm = reactive({
@@ -311,6 +405,7 @@ const productForm = reactive({
   unit: '',
   quantity: 0,
   alertThreshold: 0,
+  location: '',
   locations: [],
   price: 0,
   costPrice: 0,
@@ -319,11 +414,49 @@ const productForm = reactive({
 
 const stockForm = reactive({
   quantity: 1,
+  stockLocation: '',
   reason: ''
+})
+
+const stockMaxQuantity = computed(() => {
+  if (stockType.value !== 'OUT' || !stockForm.stockLocation || !currentItem.locations) {
+    return currentItem.quantity || 999999
+  }
+  const selected = currentItem.locations.find(l => l.location === stockForm.stockLocation)
+  return selected ? selected.quantity : (currentItem.quantity || 999999)
+})
+
+watch(() => stockForm.stockLocation, (newLoc) => {
+  if (stockType.value === 'OUT' && newLoc) {
+    const selected = currentItem.locations.find(l => l.location === newLoc)
+    if (selected && stockForm.quantity > selected.quantity) {
+      stockForm.quantity = selected.quantity
+    }
+  }
 })
 
 const thresholdForm = reactive({
   alertThreshold: 0
+})
+
+const movePanelVisible = ref(false)
+const moveLoading = ref(false)
+const moveForm = reactive({
+  sourceLocation: '',
+  targetLocation: '',
+  newLocation: '',
+  quantity: 1
+})
+
+const moveSourceMaxQty = computed(() => {
+  if (!moveForm.sourceLocation || !productForm.locations) return 999999
+  const src = productForm.locations.find(l => l.location === moveForm.sourceLocation)
+  return src ? src.quantity : 999999
+})
+
+const availableTargetLocations = computed(() => {
+  if (!productForm.locations) return []
+  return productForm.locations.filter(l => l.location !== moveForm.sourceLocation)
 })
 
 const productFormRules = {
@@ -332,6 +465,7 @@ const productFormRules = {
 
 const stockFormRules = {
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
+  stockLocation: [{ required: true, message: '请输入存放位置', trigger: 'blur' }],
   reason: [{ required: true, message: '请输入原因', trigger: 'blur' }]
 }
 
@@ -397,6 +531,7 @@ function handleAdd() {
     unit: '',
     quantity: 0,
     alertThreshold: 0,
+    location: '',
     locations: [],
     price: 0,
     costPrice: 0,
@@ -414,6 +549,7 @@ function handleEdit(row) {
     color: row.color || '',
     size: row.size || '',
     unit: row.unit,
+    location: row.locations && row.locations.length > 0 ? row.locations[0].location : '',
     locations: row.locations || [],
     price: row.price,
     costPrice: row.costPrice,
@@ -451,7 +587,9 @@ function handleStockIn(row) {
   currentItemId.value = row.id
   currentItem.name = row.name
   currentItem.quantity = row.quantity
+  currentItem.locations = []
   stockForm.quantity = 1
+  stockForm.stockLocation = ''
   stockForm.reason = ''
   stockDialogVisible.value = true
 }
@@ -461,7 +599,9 @@ function handleStockOut(row) {
   currentItemId.value = row.id
   currentItem.name = row.name
   currentItem.quantity = row.quantity
+  currentItem.locations = row.locations || []
   stockForm.quantity = 1
+  stockForm.stockLocation = ''
   stockForm.reason = ''
   stockDialogVisible.value = true
 }
@@ -477,7 +617,9 @@ async function handleStockSubmit() {
         itemType: 'FINISHED_PRODUCT',
         itemId: currentItemId.value,
         quantity: stockForm.quantity,
-        reason: stockForm.reason
+        reason: stockForm.stockLocation
+          ? `${stockForm.reason} 位置:${stockForm.stockLocation}`
+          : stockForm.reason
       }
       if (stockType.value === 'IN') {
         await stockIn(data)
@@ -536,6 +678,72 @@ async function handleDelete(row) {
     if (error !== 'cancel') {
       ElMessage.error(error.response?.data?.message || '删除失败')
     }
+  }
+}
+
+function openMovePanel(loc) {
+  moveForm.sourceLocation = loc.location
+  moveForm.targetLocation = ''
+  moveForm.newLocation = ''
+  moveForm.quantity = Math.min(1, loc.quantity)
+  movePanelVisible.value = true
+}
+
+function closeMovePanel() {
+  movePanelVisible.value = false
+}
+
+async function handleMoveSubmit() {
+  const targetLoc = moveForm.targetLocation || moveForm.newLocation
+  if (!targetLoc || !targetLoc.trim()) {
+    ElMessage.warning('请选择或输入目标位置')
+    return
+  }
+  if (targetLoc === moveForm.sourceLocation) {
+    ElMessage.warning('源位置和目标位置不能相同')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认将 ${moveForm.quantity} 件从「${moveForm.sourceLocation}」移动到「${targetLoc}」吗？`,
+      '跨库移动确认',
+      { confirmButtonText: '确认移动', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
+
+  moveLoading.value = true
+  try {
+    await moveFinishedProductLocation(currentItemId.value, {
+      sourceLocation: moveForm.sourceLocation,
+      targetLocation: targetLoc,
+      quantity: moveForm.quantity
+    })
+    ElMessage.success(`成功将 ${moveForm.quantity} 件从「${moveForm.sourceLocation}」移动到「${targetLoc}」`)
+
+    const srcIdx = productForm.locations.findIndex(l => l.location === moveForm.sourceLocation)
+    if (srcIdx !== -1) {
+      productForm.locations[srcIdx].quantity -= moveForm.quantity
+      if (productForm.locations[srcIdx].quantity <= 0) {
+        productForm.locations.splice(srcIdx, 1)
+      }
+    }
+
+    const targetIdx = productForm.locations.findIndex(l => l.location === targetLoc)
+    if (targetIdx !== -1) {
+      productForm.locations[targetIdx].quantity += moveForm.quantity
+    } else {
+      productForm.locations.push({ location: targetLoc, quantity: moveForm.quantity })
+    }
+
+    closeMovePanel()
+    fetchList()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '移动失败')
+  } finally {
+    moveLoading.value = false
   }
 }
 </script>
@@ -684,5 +892,107 @@ async function handleDelete(row) {
   color: #c0c4cc;
   font-style: italic;
   font-size: 13px;
+}
+
+.loc-move-btn {
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 3px;
+  color: #409eff;
+  border-radius: 4px;
+  transition: all 0.2s;
+  font-size: 16px;
+  background: rgba(64, 158, 255, 0.06);
+}
+.loc-move-btn:hover {
+  color: #fff;
+  background: #409eff;
+  transform: scale(1.15);
+}
+
+.move-panel {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f8faff 0%, #f0f5ff 100%);
+  border: 1px solid #d4e3fc;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.06);
+}
+.move-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.move-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #409eff;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.move-panel-close {
+  cursor: pointer;
+  color: #909399;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+.move-panel-close:hover {
+  color: #f56c6c;
+}
+.move-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.move-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.move-row label {
+  width: 56px;
+  font-size: 12px;
+  color: #606266;
+  flex-shrink: 0;
+}
+.move-source {
+  font-weight: 600;
+  color: #303133;
+  font-size: 13px;
+}
+.move-source small {
+  color: #909399;
+  font-weight: 400;
+  margin-left: 4px;
+}
+.move-hint {
+  font-size: 11px;
+  color: #909399;
+  margin-left: 8px;
+}
+.move-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.slide-fade-enter-active {
+  transition: all 0.25s ease-out;
+}
+.slide-fade-leave-active {
+  transition: all 0.15s ease-in;
+}
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>
