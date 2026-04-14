@@ -1,2 +1,15 @@
+# Backend - Spring Boot
 .m2/
 target/
+bug/
+
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
