@@ -91,14 +91,14 @@
             <span v-else class="loc-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="price" label="销售单价" width="90" align="center">
+        <el-table-column prop="costPrice" label="单件成本" width="120" align="center">
           <template #default="{ row }">
-            {{ row.price != null ? row.price.toFixed(2) : '' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="costPrice" label="成本价" width="80" align="center">
-          <template #default="{ row }">
-            {{ row.costPrice != null ? row.costPrice.toFixed(2) : '' }}
+            <span
+              class="cost-pill cost-pill--table"
+              :class="{ 'cost-empty': row.costPrice == null }"
+            >
+              {{ formatCurrency(row.costPrice) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column v-if="showActionColumn" label="操作" width="260" fixed="right" align="center">
@@ -258,12 +258,6 @@
             </transition>
           </template>
         </el-form-item>
-        <el-form-item label="销售单价" prop="price">
-          <el-input-number v-model="productForm.price" :min="0" :precision="2" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="成本价" prop="costPrice">
-          <el-input-number v-model="productForm.costPrice" :min="0" :precision="2" style="width: 100%" />
-        </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="productForm.description" type="textarea" :rows="2" placeholder="请输入描述" />
         </el-form-item>
@@ -409,8 +403,6 @@ const productForm = reactive({
   alertThreshold: 0,
   location: '',
   locations: [],
-  price: 0,
-  costPrice: 0,
   description: ''
 })
 
@@ -531,6 +523,11 @@ function formatDateTime(dateStr) {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
+function formatCurrency(value) {
+  if (value == null) return '-'
+  return `¥${Number(value).toFixed(2)}`
+}
+
 function handleAdd() {
   dialogType.value = 'add'
   Object.assign(productForm, {
@@ -543,8 +540,6 @@ function handleAdd() {
     alertThreshold: 0,
     location: '',
     locations: [],
-    price: 0,
-    costPrice: 0,
     description: ''
   })
   addDialogVisible.value = true
@@ -561,8 +556,6 @@ function handleEdit(row) {
     unit: row.unit,
     location: row.locations && row.locations.length > 0 ? row.locations[0].location : '',
     locations: row.locations || [],
-    price: row.price,
-    costPrice: row.costPrice,
     description: row.description
   })
   addDialogVisible.value = true
@@ -783,6 +776,30 @@ async function handleMoveSubmit() {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.cost-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.cost-pill--table {
+  color: #b26a00;
+  background: linear-gradient(135deg, #fff7e6, #ffe7ba);
+  border: 1px solid #ffd591;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.cost-empty {
+  color: #909399;
+  background: linear-gradient(135deg, #f4f4f5, #ebeef5);
+  border-color: #dcdfe6;
 }
 
 .qty-badge {

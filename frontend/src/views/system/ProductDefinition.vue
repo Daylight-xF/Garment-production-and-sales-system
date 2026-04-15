@@ -45,8 +45,8 @@
 
       <el-table :data="productList" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="productCode" label="产品编号" width="120" align="center" />
-        <el-table-column prop="productName" label="产品名称" min-width="120" align="center"/>
-        <el-table-column prop="category" label="产品分类" width="100" align="center"/>
+        <el-table-column prop="productName" label="产品名称" min-width="120" align="center" />
+        <el-table-column prop="category" label="产品分类" width="100" align="center" />
         <el-table-column prop="status" label="状态" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === '启用' ? 'success' : 'danger'">
@@ -57,6 +57,13 @@
         <el-table-column label="原材料数量" width="100" align="center">
           <template #default="{ row }">
             {{ row.materials ? row.materials.length : 0 }}
+          </template>
+        </el-table-column>
+        <el-table-column label="单件成本" width="120" align="center">
+          <template #default="{ row }">
+            <span class="cost-pill cost-pill--table">
+              {{ formatCurrency(row.unitCost) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="产品描述" min-width="150" show-overflow-tooltip />
@@ -89,7 +96,7 @@
     <el-dialog
       v-model="dialogVisible"
       :title="dialogType === 'add' ? '添加产品' : '编辑产品'"
-      width="800px"
+      width="980px"
       destroy-on-close
     >
       <el-form
@@ -184,6 +191,20 @@
               />
             </template>
           </el-table-column>
+          <el-table-column label="单价" width="120" align="center">
+            <template #default="{ row }">
+              <span class="cost-chip cost-chip--price">
+                {{ formatCurrency(getMaterialCurrentPriceValue(row)) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="单件成本" width="120" align="center">
+            <template #default="{ row }">
+              <span class="cost-chip cost-chip--cost">
+                {{ formatCurrency(getMaterialCostValue(row)) }}
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column label="单位" width="80" align="center">
             <template #default="{ row }">
               {{ row.unit || '-' }}
@@ -203,26 +224,44 @@
             + 添加原材料
           </el-button>
         </div>
+
+        <div class="cost-summary">
+          <div class="cost-summary__meta">
+            <span class="cost-summary__eyebrow">COST OVERVIEW</span>
+            <span class="cost-summary__label">总单件成本</span>
+          </div>
+          <div class="cost-summary__amount">
+            <span class="cost-summary__currency">￥</span>
+            <span class="cost-summary__value">{{ (productUnitCost || 0).toFixed(2) }}</span>
+          </div>
+        </div>
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">Cancel</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">OK</el-button>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import {
   getProductDefinitionList,
+  getProductDefinitionDetail,
   createProductDefinition,
   updateProductDefinition,
   deleteProductDefinition
 } from '../../api/productDefinition'
 import { getRawMaterialList } from '../../api/inventory'
+import {
+  getMaterialCurrentPrice,
+  calculateMaterialCost,
+  calculateProductUnitCost
+} from '../../utils/productCost'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -253,6 +292,8 @@ const productForm = reactive({
   description: '',
   materials: []
 })
+
+const productUnitCost = computed(() => calculateProductUnitCost(productForm.materials, rawMaterialList.value))
 
 const productFormRules = {
   productCode: [{ required: true, message: '请输入产品编号', trigger: 'blur' }],
@@ -309,8 +350,10 @@ function handleReset() {
   fetchList()
 }
 
-function handleAdd() {
+async function handleAdd() {
+  await fetchRawMaterials()
   dialogType.value = 'add'
+  currentProductId.value = null
   Object.assign(productForm, {
     productCode: '',
     productName: '',
@@ -322,24 +365,29 @@ function handleAdd() {
   dialogVisible.value = true
 }
 
-function handleEdit(row) {
+async function handleEdit(row) {
+  await fetchRawMaterials()
   dialogType.value = 'edit'
   currentProductId.value = row.id
 
-  const materials = (row.materials || []).map(m => ({
-    materialId: m.materialId,
-    materialName: m.materialName,
-    materialCategory: m.materialCategory,
-    quantity: m.quantity,
-    unit: m.unit
+  const res = await getProductDefinitionDetail(row.id)
+  const detail = res.data || res
+  const materials = (detail.materials || []).map(material => ({
+    materialId: material.materialId,
+    materialName: material.materialName,
+    materialCategory: material.materialCategory,
+    quantity: material.quantity,
+    unit: material.unit,
+    materialPrice: material.materialPrice || 0,
+    materialCost: material.materialCost || 0
   }))
 
   Object.assign(productForm, {
-    productCode: row.productCode,
-    productName: row.productName,
-    category: row.category,
-    status: row.status,
-    description: row.description,
+    productCode: detail.productCode,
+    productName: detail.productName,
+    category: detail.category,
+    status: detail.status,
+    description: detail.description,
     materials: materials.length > 0 ? materials : [createEmptyMaterial()]
   })
   dialogVisible.value = true
@@ -350,8 +398,10 @@ function createEmptyMaterial() {
     materialId: '',
     materialName: '',
     materialCategory: '',
-    quantity: 1.00,
-    unit: ''
+    quantity: 1.0,
+    unit: '',
+    materialPrice: 0,
+    materialCost: 0
   }
 }
 
@@ -364,19 +414,32 @@ function removeMaterial(index) {
 }
 
 function handleMaterialChange(materialId, index) {
-  const material = rawMaterialList.value.find(m => m.id === materialId)
+  const material = rawMaterialList.value.find(item => item.id === materialId)
   if (material) {
     productForm.materials[index].materialName = material.name
     productForm.materials[index].materialCategory = material.category
     productForm.materials[index].unit = material.unit
-    productForm.materials[index].quantity = 1.00
+    productForm.materials[index].materialPrice = material.price || 0
+    productForm.materials[index].quantity = 1.0
   }
 }
 
 function isMaterialSelected(materialId, currentIndex) {
-  return productForm.materials.some((m, idx) =>
-    m.materialId === materialId && idx !== currentIndex
+  return productForm.materials.some((material, index) =>
+    material.materialId === materialId && index !== currentIndex
   )
+}
+
+function getMaterialCurrentPriceValue(material) {
+  return getMaterialCurrentPrice(material, rawMaterialList.value)
+}
+
+function getMaterialCostValue(material) {
+  return calculateMaterialCost(material, rawMaterialList.value)
+}
+
+function formatCurrency(value) {
+  return `￥${(value || 0).toFixed(2)}`
 }
 
 function formatDateTime(dateStr) {
@@ -400,7 +463,7 @@ async function handleSubmit() {
 
     submitLoading.value = true
     try {
-      const validMaterials = productForm.materials.filter(m => m.materialId)
+      const validMaterials = productForm.materials.filter(material => material.materialId)
 
       if (validMaterials.length === 0) {
         ElMessage.warning('请至少配置一种原材料')
@@ -409,9 +472,9 @@ async function handleSubmit() {
 
       const submitData = {
         ...productForm,
-        materials: validMaterials.map(m => ({
-          materialId: m.materialId,
-          quantity: m.quantity
+        materials: validMaterials.map(material => ({
+          materialId: material.materialId,
+          quantity: material.quantity
         }))
       }
 
@@ -422,6 +485,7 @@ async function handleSubmit() {
         await updateProductDefinition(currentProductId.value, submitData)
         ElMessage.success('编辑产品成功')
       }
+
       dialogVisible.value = false
       fetchList()
     } catch (error) {
@@ -435,7 +499,7 @@ async function handleSubmit() {
 async function handleDelete(row) {
   try {
     await ElMessageBox.confirm(
-      `确定删除产品"${row.productName}"吗？此操作不可恢复。`,
+      `确定删除产品“${row.productName}”吗？此操作不可恢复。`,
       '警告',
       {
         confirmButtonText: '确定',
@@ -485,5 +549,106 @@ async function handleDelete(row) {
   display: flex;
   justify-content: center;
   margin-top: 8px;
+}
+
+.cost-summary {
+  margin-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid #d9e6f5;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(64, 158, 255, 0.08), rgba(230, 162, 60, 0.14)),
+    #f8fbff;
+  box-shadow: 0 10px 24px rgba(48, 65, 86, 0.08);
+}
+
+.cost-summary__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cost-summary__eyebrow {
+  color: #7f8ea3;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.cost-summary__label {
+  color: #304156;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cost-summary__amount {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cost-summary__currency {
+  color: #d48806;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cost-summary__value {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 800;
+  color: #d48806;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.cost-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.cost-pill--table {
+  color: #b26a00;
+  background: linear-gradient(135deg, #fff7e6, #ffe7ba);
+  border: 1px solid #ffd591;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.cost-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-weight: 700;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cost-chip:hover {
+  transform: translateY(-1px);
+}
+
+.cost-chip--price {
+  color: #2f6db5;
+  background: linear-gradient(135deg, #eef6ff, #dcecff);
+  border: 1px solid #bfd8ff;
+  box-shadow: 0 6px 14px rgba(64, 158, 255, 0.12);
+}
+
+.cost-chip--cost {
+  color: #b26a00;
+  background: linear-gradient(135deg, #fff7e6, #ffe7ba);
+  border: 1px solid #ffd591;
+  box-shadow: 0 6px 14px rgba(230, 162, 60, 0.14);
 }
 </style>

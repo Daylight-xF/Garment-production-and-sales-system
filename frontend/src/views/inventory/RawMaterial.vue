@@ -323,6 +323,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Switch, Rank, Close } from '@element-plus/icons-vue'
+import { getRawMaterialStockMaxQuantity } from '../../utils/rawMaterialStock'
 import {
   getRawMaterialList,
   createRawMaterial,
@@ -385,11 +386,11 @@ const stockForm = reactive({
 })
 
 const stockMaxQuantity = computed(() => {
-  if (stockType.value !== 'OUT' || !stockForm.stockLocation || !currentItem.locations) {
-    return currentItem.quantity || 999999
-  }
-  const selected = currentItem.locations.find(l => l.location === stockForm.stockLocation)
-  return selected ? selected.quantity : (currentItem.quantity || 999999)
+  return getRawMaterialStockMaxQuantity({
+    stockType: stockType.value,
+    stockLocation: stockForm.stockLocation,
+    currentItem
+  })
 })
 
 watch(() => stockForm.stockLocation, (newLoc) => {

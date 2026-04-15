@@ -25,6 +25,7 @@ public class InventoryServiceImpl implements InventoryService {
 
     private final RawMaterialRepository rawMaterialRepository;
     private final FinishedProductRepository finishedProductRepository;
+    private final ProductDefinitionRepository productDefinitionRepository;
     private final ProductionPlanRepository productionPlanRepository;
     private final InventoryRecordRepository inventoryRecordRepository;
     private final InventoryAlertRepository inventoryAlertRepository;
@@ -32,12 +33,14 @@ public class InventoryServiceImpl implements InventoryService {
 
     public InventoryServiceImpl(RawMaterialRepository rawMaterialRepository,
                                  FinishedProductRepository finishedProductRepository,
+                                 ProductDefinitionRepository productDefinitionRepository,
                                  ProductionPlanRepository productionPlanRepository,
                                  InventoryRecordRepository inventoryRecordRepository,
                                  InventoryAlertRepository inventoryAlertRepository,
                                  UserRepository userRepository) {
         this.rawMaterialRepository = rawMaterialRepository;
         this.finishedProductRepository = finishedProductRepository;
+        this.productDefinitionRepository = productDefinitionRepository;
         this.productionPlanRepository = productionPlanRepository;
         this.inventoryRecordRepository = inventoryRecordRepository;
         this.inventoryAlertRepository = inventoryAlertRepository;
@@ -557,23 +560,17 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private FinishedProduct findOrCreateFinishedProduct(ProductionPlan plan) {
-        String searchName = plan.getProductName();
-        String searchCode = plan.getProductCode();
-
         List<FinishedProduct> existing = finishedProductRepository.findAll().stream()
-                .filter(p -> p.getName() != null && p.getName().equals(searchName))
-                .filter(p -> searchCode == null ||
-                        (p.getProductCode() != null && p.getProductCode().equals(searchCode)))
+                .filter(product -> matchesFinishedProductIdentity(product, plan))
                 .collect(Collectors.toList());
 
         if (!existing.isEmpty()) {
-            FinishedProduct product = existing.get(0);
-            return product;
+            return existing.get(0);
         }
 
         FinishedProduct newProduct = new FinishedProduct();
-        newProduct.setProductCode(searchCode);
-        newProduct.setName(searchName);
+        newProduct.setProductCode(plan.getProductCode());
+        newProduct.setName(plan.getProductName());
         newProduct.setColor(plan.getColor());
         newProduct.setSize(plan.getSize());
         newProduct.setBatchNo(plan.getBatchNo());
@@ -582,6 +579,22 @@ public class InventoryServiceImpl implements InventoryService {
         newProduct.setDescription("自动创建 - 来源: " + plan.getBatchNo());
 
         return finishedProductRepository.save(newProduct);
+    }
+
+    private boolean matchesFinishedProductIdentity(FinishedProduct product, ProductionPlan plan) {
+        return sameText(product.getBatchNo(), plan.getBatchNo())
+                && sameText(product.getName(), plan.getProductName())
+                && sameText(product.getProductCode(), plan.getProductCode())
+                && sameText(product.getColor(), plan.getColor())
+                && sameText(product.getSize(), plan.getSize());
+    }
+
+    private boolean sameText(String left, String right) {
+        return normalizeText(left).equals(normalizeText(right));
+    }
+
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
     }
 
     private String extractLocation(String reason) {
@@ -709,6 +722,7 @@ public class InventoryServiceImpl implements InventoryService {
 
     private FinishedProductVO convertToFinishedProductVO(FinishedProduct product) {
         recalculateAndFixFinishedProductQuantity(product, finishedProductRepository);
+        Double dynamicCostPrice = resolveFinishedProductCostPrice(product.getProductCode());
         return FinishedProductVO.builder()
                 .id(product.getId())
                 .productCode(product.getProductCode())
@@ -722,11 +736,40 @@ public class InventoryServiceImpl implements InventoryService {
                 .alertThreshold(product.getAlertThreshold())
                 .locations(product.getLocations())
                 .price(product.getPrice())
-                .costPrice(product.getCostPrice())
+                .costPrice(dynamicCostPrice)
                 .description(product.getDescription())
                 .createTime(product.getCreateTime())
                 .updateTime(product.getUpdateTime())
                 .build();
+    }
+
+    private Double resolveFinishedProductCostPrice(String productCode) {
+        if (!StringUtils.hasText(productCode)) {
+            return null;
+        }
+
+        ProductDefinition definition = productDefinitionRepository.findByProductCode(productCode).orElse(null);
+        if (definition == null || definition.getMaterials() == null || definition.getMaterials().isEmpty()) {
+            return null;
+        }
+
+        double unitCost = 0D;
+        boolean hasMatchedMaterial = false;
+        for (ProductDefinition.ProductMaterial material : definition.getMaterials()) {
+            if (!StringUtils.hasText(material.getMaterialId())) {
+                continue;
+            }
+
+            RawMaterial rawMaterial = rawMaterialRepository.findById(material.getMaterialId()).orElse(null);
+            if (rawMaterial == null || rawMaterial.getPrice() == null || material.getQuantity() == null) {
+                continue;
+            }
+
+            unitCost += rawMaterial.getPrice() * material.getQuantity();
+            hasMatchedMaterial = true;
+        }
+
+        return hasMatchedMaterial ? unitCost : null;
     }
 
     private InventoryRecordVO convertToInventoryRecordVO(InventoryRecord record) {

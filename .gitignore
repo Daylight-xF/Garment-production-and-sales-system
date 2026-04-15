@@ -1,5 +1,6 @@
 # Backend - Spring Boot
 .m2/
+.m2repo/
 target/
 bug/
 

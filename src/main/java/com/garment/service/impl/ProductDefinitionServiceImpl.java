@@ -17,7 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -145,17 +148,18 @@ public class ProductDefinitionServiceImpl implements ProductDefinitionService {
     }
 
     private ProductDefinitionVO convertToVO(ProductDefinition definition) {
+        Map<String, RawMaterial> rawMaterialMap = buildRawMaterialMap(definition);
         List<ProductDefinitionVO.MaterialVO> materials = null;
+        double unitCost = 0D;
+
         if (definition.getMaterials() != null) {
             materials = definition.getMaterials().stream()
-                    .map(m -> ProductDefinitionVO.MaterialVO.builder()
-                            .materialId(m.getMaterialId())
-                            .materialName(m.getMaterialName())
-                            .materialCategory(m.getMaterialCategory())
-                            .quantity(m.getQuantity())
-                            .unit(m.getUnit())
-                            .build())
+                    .map(m -> buildMaterialVO(m, rawMaterialMap))
                     .collect(Collectors.toList());
+
+            unitCost = materials.stream()
+                    .mapToDouble(material -> material.getMaterialCost() != null ? material.getMaterialCost() : 0D)
+                    .sum();
         }
 
         return ProductDefinitionVO.builder()
@@ -166,8 +170,43 @@ public class ProductDefinitionServiceImpl implements ProductDefinitionService {
                 .status(definition.getStatus())
                 .description(definition.getDescription())
                 .materials(materials)
+                .unitCost(unitCost)
                 .createTime(definition.getCreateTime())
                 .updateTime(definition.getUpdateTime())
+                .build();
+    }
+
+    private Map<String, RawMaterial> buildRawMaterialMap(ProductDefinition definition) {
+        if (definition.getMaterials() == null || definition.getMaterials().isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, RawMaterial> rawMaterialMap = new HashMap<>();
+        for (ProductDefinition.ProductMaterial material : definition.getMaterials()) {
+            if (material.getMaterialId() == null || rawMaterialMap.containsKey(material.getMaterialId())) {
+                continue;
+            }
+            rawMaterialRepository.findById(material.getMaterialId())
+                    .ifPresent(rawMaterial -> rawMaterialMap.put(material.getMaterialId(), rawMaterial));
+        }
+        return rawMaterialMap;
+    }
+
+    private ProductDefinitionVO.MaterialVO buildMaterialVO(ProductDefinition.ProductMaterial material,
+                                                           Map<String, RawMaterial> rawMaterialMap) {
+        RawMaterial rawMaterial = rawMaterialMap.get(material.getMaterialId());
+        double materialPrice = rawMaterial != null && rawMaterial.getPrice() != null ? rawMaterial.getPrice() : 0D;
+        double quantity = material.getQuantity() != null ? material.getQuantity() : 0D;
+        double materialCost = materialPrice * quantity;
+
+        return ProductDefinitionVO.MaterialVO.builder()
+                .materialId(material.getMaterialId())
+                .materialName(material.getMaterialName())
+                .materialCategory(material.getMaterialCategory())
+                .quantity(material.getQuantity())
+                .unit(material.getUnit())
+                .materialPrice(materialPrice)
+                .materialCost(materialCost)
                 .build();
     }
 }

@@ -27,8 +27,8 @@
         </el-form-item>
 
         <el-form-item label="产品明细" prop="items">
-          <el-table :data="form.items" border style="width: 800px">
-            <el-table-column label="产品" min-width="180">
+          <el-table :data="form.items" border style="width: 1000px">
+            <el-table-column label="产品" min-width="150">
               <template #default="{ row, $index }">
                 <el-select
                   v-model="row.productId"
@@ -39,7 +39,7 @@
                   <el-option
                     v-for="p in productList"
                     :key="p.id"
-                    :label="p.name"
+                    :label="formatProductDisplayName(p)"
                     :value="p.id"
                   />
                 </el-select>
@@ -50,12 +50,12 @@
                 <el-input v-model="row.specification" placeholder="规格" />
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="140">
+            <el-table-column label="数量" width="175">
               <template #default="{ row }">
                 <el-input-number v-model="row.quantity" :min="1" :max="99999" @change="calcAmount(row)" />
               </template>
             </el-table-column>
-            <el-table-column label="单价" width="140">
+            <el-table-column label="单价" width="175">
               <template #default="{ row }">
                 <el-input-number v-model="row.unitPrice" :min="0" :precision="2" @change="calcAmount(row)" />
               </template>
@@ -71,7 +71,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-button type="primary" style="margin-top: 10px" @click="addItem">添加产品</el-button>
+          <el-button type="primary" style="margin-top: 40px" @click="addItem">添加产品</el-button>
         </el-form-item>
 
         <el-form-item label="备注">
@@ -92,6 +92,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createOrder } from '../../api/order'
+import { formatProductDisplayName } from '../../utils/productDisplay'
 import request from '../../utils/request'
 
 const router = useRouter()

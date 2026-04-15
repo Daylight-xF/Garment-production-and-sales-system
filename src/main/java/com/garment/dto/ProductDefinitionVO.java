@@ -21,6 +21,7 @@ public class ProductDefinitionVO {
     private String status;
     private String description;
     private List<MaterialVO> materials;
+    private Double unitCost;
     private Date createTime;
     private Date updateTime;
 
@@ -34,5 +35,7 @@ public class ProductDefinitionVO {
         private String materialCategory;
         private Double quantity;
         private String unit;
+        private Double materialPrice;
+        private Double materialCost;
     }
 }
