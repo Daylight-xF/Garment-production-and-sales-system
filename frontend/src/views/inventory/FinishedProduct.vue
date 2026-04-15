@@ -2,10 +2,10 @@
   <div class="finished-product-container">
     <el-card class="search-card">
       <el-form :inline="true" :model="searchForm" class="search-form">
-        <el-form-item label="名称">
+        <el-form-item label="批次号（产品名称）">
           <el-input
-            v-model="searchForm.name"
-            placeholder="请输入成品名称"
+            v-model="searchForm.keyword"
+            placeholder="请输入批次号或产品名"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -383,7 +383,7 @@ const currentItem = reactive({
 })
 
 const searchForm = reactive({
-  name: '',
+  keyword: '',
   category: ''
 })
 
@@ -483,7 +483,7 @@ async function fetchList() {
   loading.value = true
   try {
     const params = {
-      name: searchForm.name,
+      keyword: searchForm.keyword,
       category: searchForm.category,
       page: pagination.page,
       size: pagination.size
@@ -505,7 +505,7 @@ function handleSearch() {
 }
 
 function handleReset() {
-  searchForm.name = ''
+  searchForm.keyword = ''
   searchForm.category = ''
   pagination.page = 1
   fetchList()

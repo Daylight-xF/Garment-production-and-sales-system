@@ -75,12 +75,12 @@ public class InventoryController {
     @GetMapping("/finished-products")
     @PreAuthorize("hasAnyAuthority('INVENTORY_READ', 'ORDER_CREATE')")
     public Result<Map<String, Object>> getFinishedProductList(
-            @RequestParam(defaultValue = "") String name,
+            @RequestParam(defaultValue = "") String keyword,
             @RequestParam(defaultValue = "") String category,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<FinishedProductVO> productPage = inventoryService.getFinishedProductList(name, category, pageable);
+        Page<FinishedProductVO> productPage = inventoryService.getFinishedProductList(keyword, category, pageable);
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", productPage.getContent());

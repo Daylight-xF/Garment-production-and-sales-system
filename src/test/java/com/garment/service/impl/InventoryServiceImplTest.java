@@ -182,6 +182,23 @@ class InventoryServiceImplTest {
         assertThat(result.getContent().get(1).getCostPrice()).isNull();
     }
 
+    @Test
+    void getFinishedProductListShouldMatchBatchNoKeyword() {
+        FinishedProduct batchMatched = buildFinishedProduct("finished-20", "PC-20260415-9710", "shirt-y1", "Y1", "red", "M");
+        batchMatched.setCategory("TOP");
+
+        FinishedProduct nameMatched = buildFinishedProduct("finished-21", "PC-20260415-3440", "pants-n1", "N1", "red", "S");
+        nameMatched.setCategory("BOTTOM");
+
+        when(finishedProductRepository.findAll()).thenReturn(Arrays.asList(batchMatched, nameMatched));
+        when(productDefinitionRepository.findByProductCode("Y1")).thenReturn(Optional.empty());
+
+        Page<FinishedProductVO> result = inventoryService.getFinishedProductList("9710", "", PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(FinishedProductVO::getBatchNo)
+                .containsExactly("PC-20260415-9710");
+    }
+
     private ProductionPlan buildPlan(String id, String batchNo, String productName, String productCode, String color, String size) {
         ProductionPlan plan = new ProductionPlan();
         plan.setId(id);

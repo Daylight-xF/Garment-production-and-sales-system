@@ -161,10 +161,12 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     @Override
-    public Page<FinishedProductVO> getFinishedProductList(String name, String category, Pageable pageable) {
+    public Page<FinishedProductVO> getFinishedProductList(String keyword, String category, Pageable pageable) {
         List<FinishedProduct> all = finishedProductRepository.findAll();
         List<FinishedProduct> filtered = all.stream()
-                .filter(p -> !StringUtils.hasText(name) || (p.getName() != null && p.getName().contains(name)))
+                .filter(p -> !StringUtils.hasText(keyword)
+                        || (p.getBatchNo() != null && p.getBatchNo().contains(keyword))
+                        || (p.getName() != null && p.getName().contains(keyword)))
                 .filter(p -> !StringUtils.hasText(category) || category.equals(p.getCategory()))
                 .collect(Collectors.toList());
 
