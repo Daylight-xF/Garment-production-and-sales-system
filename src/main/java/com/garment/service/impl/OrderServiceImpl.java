@@ -5,13 +5,11 @@ import com.garment.exception.BusinessException;
 import com.garment.model.Order;
 import com.garment.model.OrderItem;
 import com.garment.model.OrderLog;
-import com.garment.model.ProductDefinition;
 import com.garment.model.SalesRecord;
 import com.garment.model.User;
 import com.garment.repository.OrderItemRepository;
 import com.garment.repository.OrderLogRepository;
 import com.garment.repository.OrderRepository;
-import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.OrderService;
@@ -34,20 +32,17 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final OrderLogRepository orderLogRepository;
     private final UserRepository userRepository;
-    private final ProductDefinitionRepository productDefinitionRepository;
     private final SalesRecordRepository salesRecordRepository;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OrderItemRepository orderItemRepository,
                             OrderLogRepository orderLogRepository,
                             UserRepository userRepository,
-                            ProductDefinitionRepository productDefinitionRepository,
                             SalesRecordRepository salesRecordRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderLogRepository = orderLogRepository;
         this.userRepository = userRepository;
-        this.productDefinitionRepository = productDefinitionRepository;
         this.salesRecordRepository = salesRecordRepository;
     }
 
@@ -74,16 +69,13 @@ public class OrderServiceImpl implements OrderService {
             OrderItem item = new OrderItem();
             item.setOrderId(order.getId());
             item.setProductId(itemDTO.getProductId());
+            item.setProductCode(itemDTO.getProductCode());
             item.setProductName(itemDTO.getProductName());
-            item.setSpecification(itemDTO.getSpecification());
+            item.setColor(itemDTO.getColor());
+            item.setSize(itemDTO.getSize());
             item.setQuantity(itemDTO.getQuantity());
             item.setUnitPrice(itemDTO.getUnitPrice());
             item.setAmount(amount);
-
-            if (itemDTO.getProductId() != null) {
-                productDefinitionRepository.findById(itemDTO.getProductId())
-                        .ifPresent(productDef -> item.setProductCode(productDef.getProductCode()));
-            }
             items.add(item);
         }
         order.setTotalAmount(totalAmount);
@@ -308,7 +300,8 @@ public class OrderServiceImpl implements OrderService {
                         item.getProductId(),
                         item.getProductCode(),
                         item.getProductName(),
-                        item.getSpecification(),
+                        item.getColor(),
+                        item.getSize(),
                         item.getQuantity(),
                         item.getUnitPrice(),
                         item.getAmount()))
@@ -343,7 +336,8 @@ public class OrderServiceImpl implements OrderService {
                             .productId(item.getProductId())
                             .productCode(item.getProductCode())
                             .productName(item.getProductName())
-                            .specification(item.getSpecification())
+                            .color(item.getColor())
+                            .size(item.getSize())
                             .quantity(item.getQuantity())
                             .unitPrice(item.getUnitPrice())
                             .amount(item.getAmount())

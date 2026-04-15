@@ -47,7 +47,8 @@ public class SalesRecordVO {
         private String productId;
         private String productCode;
         private String productName;
-        private String specification;
+        private String color;
+        private String size;
         private Integer quantity;
         private Double unitPrice;
         private Double amount;

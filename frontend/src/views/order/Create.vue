@@ -8,7 +8,7 @@
         </div>
       </template>
 
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="客户" prop="customerId">
           <el-select
             v-model="form.customerId"
@@ -18,59 +18,109 @@
             @change="onCustomerChange"
           >
             <el-option
-              v-for="c in customerList"
-              :key="c.id"
-              :label="c.name"
-              :value="c.id"
+              v-for="customer in customerList"
+              :key="customer.id"
+              :label="customer.name"
+              :value="customer.id"
             />
           </el-select>
         </el-form-item>
 
         <el-form-item label="产品明细" prop="items">
-          <el-table :data="form.items" border style="width: 1000px">
-            <el-table-column label="产品" min-width="150">
+          <el-table :data="form.items" border style="width: 1280px">
+            <el-table-column label="产品" min-width="190">
               <template #default="{ row, $index }">
                 <el-select
-                  v-model="row.productId"
+                  v-model="row.selectedProductKey"
                   placeholder="选择产品"
                   filterable
-                  @change="(val) => onProductChange($index, val)"
+                  clearable
+                  @change="(value) => onProductKeyChange($index, value)"
                 >
                   <el-option
-                    v-for="p in productList"
-                    :key="p.id"
-                    :label="formatProductDisplayName(p)"
-                    :value="p.id"
+                    v-for="option in getProductOptions(row)"
+                    :key="option.key"
+                    :label="option.label"
+                    :value="option.key"
                   />
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="规格" width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.specification" placeholder="规格" />
+
+            <el-table-column label="颜色" width="150">
+              <template #default="{ row, $index }">
+                <el-select
+                  v-model="row.color"
+                  placeholder="颜色"
+                  clearable
+                  @change="(value) => onColorChange($index, value)"
+                >
+                  <el-option
+                    v-for="color in getColorOptions(row)"
+                    :key="color"
+                    :label="color"
+                    :value="color"
+                  />
+                </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="175">
+
+            <el-table-column label="尺码" width="150">
+              <template #default="{ row, $index }">
+                <el-select
+                  v-model="row.size"
+                  placeholder="尺码"
+                  clearable
+                  @change="(value) => onSizeChange($index, value)"
+                >
+                  <el-option
+                    v-for="size in getSizeOptions(row)"
+                    :key="size"
+                    :label="size"
+                    :value="size"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="数量" width="180">
               <template #default="{ row }">
                 <el-input-number v-model="row.quantity" :min="1" :max="99999" @change="calcAmount(row)" />
               </template>
             </el-table-column>
-            <el-table-column label="单价" width="175">
+
+            <el-table-column label="单价" width="180">
               <template #default="{ row }">
                 <el-input-number v-model="row.unitPrice" :min="0" :precision="2" @change="calcAmount(row)" />
               </template>
             </el-table-column>
-            <el-table-column label="金额" width="120">
+
+            <el-table-column label="单件成本" width="120">
               <template #default="{ row }">
-                ¥{{ row.amount?.toFixed(2) || '0.00' }}
+                {{ formatCurrency(row.costPrice) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="80">
+
+            <el-table-column label="金额" width="120">
+              <template #default="{ row }">
+                {{ formatCurrency(row.amount) }}
+              </template>
+            </el-table-column>
+
+            <el-table-column label="操作" width="150">
               <template #default="{ $index }">
-                <el-button type="danger" size="small" @click="removeItem($index)" :disabled="form.items.length <= 1">删除</el-button>
+                <div class="row-actions">
+                  <el-button type="warning" size="small" plain @click="clearItem($index)">
+                    清空
+                  </el-button>
+                  <el-button type="danger" size="small" @click="removeItem($index)" :disabled="form.items.length <= 1">
+                    删除
+                  </el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
+
           <el-button type="primary" style="margin-top: 40px" @click="addItem">添加产品</el-button>
         </el-form-item>
 
@@ -79,7 +129,7 @@
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" @click="submitForm" :loading="submitting">提交订单</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitForm">提交订单</el-button>
           <el-button @click="goBack">取消</el-button>
         </el-form-item>
       </el-form>
@@ -92,7 +142,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createOrder } from '../../api/order'
-import { formatProductDisplayName } from '../../utils/productDisplay'
+import {
+  getAvailableColors,
+  getAvailableProductOptions,
+  getAvailableSizes,
+  findMatchedFinishedProduct,
+  parseProductKey
+} from '../../utils/orderItemSelection'
 import request from '../../utils/request'
 
 const router = useRouter()
@@ -102,12 +158,25 @@ const submitting = ref(false)
 const customerList = ref([])
 const productList = ref([])
 
+function createEmptyItem() {
+  return {
+    productId: '',
+    productCode: '',
+    productName: '',
+    selectedProductKey: '',
+    color: '',
+    size: '',
+    quantity: 1,
+    unitPrice: 0,
+    costPrice: null,
+    amount: 0
+  }
+}
+
 const form = ref({
   customerId: '',
   customerName: '',
-  items: [
-    { productId: '', productName: '', specification: '', quantity: 1, unitPrice: 0, amount: 0 }
-  ],
+  items: [createEmptyItem()],
   remark: ''
 })
 
@@ -115,39 +184,124 @@ const rules = {
   customerId: [{ required: true, message: '请选择客户', trigger: 'change' }]
 }
 
-function onCustomerChange(val) {
-  const customer = customerList.value.find(c => c.id === val)
+function formatCurrency(value) {
+  if (value == null) {
+    return '-'
+  }
+  return `¥${Number(value).toFixed(2)}`
+}
+
+function onCustomerChange(value) {
+  const customer = customerList.value.find(item => item.id === value)
   form.value.customerName = customer ? customer.name : ''
 }
 
-function onProductChange(index, val) {
-  const product = productList.value.find(p => p.id === val)
-  if (product) {
-    form.value.items[index].productName = product.name
-    form.value.items[index].unitPrice = product.price || 0
-    calcAmount(form.value.items[index])
-  }
+function getProductOptions(row) {
+  return getAvailableProductOptions(productList.value, row)
+}
+
+function getColorOptions(row) {
+  return getAvailableColors(productList.value, row)
+}
+
+function getSizeOptions(row) {
+  return getAvailableSizes(productList.value, row)
 }
 
 function calcAmount(row) {
   row.amount = (row.unitPrice || 0) * (row.quantity || 0)
 }
 
+function syncMatchedItem(row) {
+  const matched = findMatchedFinishedProduct(productList.value, row)
+  const selectedMeta = parseProductKey(row.selectedProductKey)
+
+  row.productName = selectedMeta.productName || ''
+  row.productCode = selectedMeta.productCode || ''
+
+  if (!matched) {
+    row.productId = ''
+    row.costPrice = null
+    calcAmount(row)
+    return
+  }
+
+  row.productId = matched.id
+  row.productName = matched.name || selectedMeta.productName || ''
+  row.productCode = matched.productCode || selectedMeta.productCode || ''
+  row.color = matched.color || ''
+  row.size = matched.size || ''
+  row.costPrice = matched.costPrice ?? null
+  row.unitPrice = matched.price ?? row.unitPrice ?? 0
+  calcAmount(row)
+}
+
+function applySelectionConstraints(row) {
+  const productOptions = getAvailableProductOptions(productList.value, row)
+  if (row.selectedProductKey && !productOptions.some(option => option.key === row.selectedProductKey)) {
+    row.selectedProductKey = ''
+  }
+
+  const colorOptions = getAvailableColors(productList.value, row)
+  if (row.color && !colorOptions.includes(row.color)) {
+    row.color = ''
+  }
+
+  const sizeOptions = getAvailableSizes(productList.value, row)
+  if (row.size && !sizeOptions.includes(row.size)) {
+    row.size = ''
+  }
+
+  syncMatchedItem(row)
+}
+
+function onProductKeyChange(index, value) {
+  const row = form.value.items[index]
+  row.selectedProductKey = value || ''
+  applySelectionConstraints(row)
+}
+
+function onColorChange(index, value) {
+  const row = form.value.items[index]
+  row.color = value || ''
+  applySelectionConstraints(row)
+}
+
+function onSizeChange(index, value) {
+  const row = form.value.items[index]
+  row.size = value || ''
+  applySelectionConstraints(row)
+}
+
 function addItem() {
-  form.value.items.push({ productId: '', productName: '', specification: '', quantity: 1, unitPrice: 0, amount: 0 })
+  form.value.items.push(createEmptyItem())
+}
+
+function clearItem(index) {
+  form.value.items.splice(index, 1, createEmptyItem())
 }
 
 function removeItem(index) {
   form.value.items.splice(index, 1)
 }
 
+function isTouchedItem(item) {
+  return Boolean(item.selectedProductKey || item.color || item.size || item.productId)
+}
+
 async function submitForm() {
   try {
     await formRef.value.validate()
 
-    const validItems = form.value.items.filter(item => item.productId)
-    if (validItems.length === 0) {
+    const touchedItems = form.value.items.filter(isTouchedItem)
+    if (touchedItems.length === 0) {
       ElMessage.warning('请至少添加一个产品')
+      return
+    }
+
+    const invalidItem = touchedItems.find(item => !item.productId || !item.color || !item.size)
+    if (invalidItem) {
+      ElMessage.warning('请为每个订单项完整选择产品、颜色和尺码')
       return
     }
 
@@ -155,10 +309,12 @@ async function submitForm() {
     await createOrder({
       customerId: form.value.customerId,
       customerName: form.value.customerName,
-      items: validItems.map(item => ({
+      items: touchedItems.map(item => ({
         productId: item.productId,
+        productCode: item.productCode,
         productName: item.productName,
-        specification: item.specification,
+        color: item.color,
+        size: item.size,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         amount: item.amount
@@ -215,5 +371,10 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
 }
 </style>

@@ -26,7 +26,9 @@ public class OrderItem {
 
     private String productName;
 
-    private String specification;
+    private String color;
+
+    private String size;
 
     private Integer quantity;
 

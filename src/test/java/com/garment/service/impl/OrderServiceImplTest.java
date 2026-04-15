@@ -1,5 +1,7 @@
 package com.garment.service.impl;
 
+import com.garment.dto.OrderCreateRequest;
+import com.garment.dto.OrderItemDTO;
 import com.garment.dto.OrderVO;
 import com.garment.model.Order;
 import com.garment.model.OrderItem;
@@ -53,6 +55,47 @@ class OrderServiceImplTest {
     private OrderServiceImpl orderService;
 
     @Test
+    void createOrderShouldPersistProductCodeColorAndSizeFromRequest() {
+        User creator = new User();
+        creator.setId("sales-1");
+        creator.setRealName("销售甲");
+
+        OrderCreateRequest request = new OrderCreateRequest();
+        request.setCustomerId("customer-1");
+        request.setCustomerName("星河服饰");
+        request.setItems(Arrays.asList(OrderItemDTO.builder()
+                .productId("finished-1")
+                .productCode("N1")
+                .productName("T恤")
+                .color("红色")
+                .size("M")
+                .quantity(2)
+                .unitPrice(88.0)
+                .amount(176.0)
+                .build()));
+
+        when(userRepository.findById("sales-1")).thenReturn(Optional.of(creator));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setId("order-new");
+            return order;
+        });
+        when(orderItemRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        orderService.createOrder(request, "sales-1");
+
+        ArgumentCaptor<Iterable<OrderItem>> itemCaptor = ArgumentCaptor.forClass(Iterable.class);
+        verify(orderItemRepository).saveAll(itemCaptor.capture());
+        OrderItem savedItem = itemCaptor.getValue().iterator().next();
+
+        assertThat(savedItem.getProductId()).isEqualTo("finished-1");
+        assertThat(savedItem.getProductCode()).isEqualTo("N1");
+        assertThat(savedItem.getProductName()).isEqualTo("T恤");
+        assertThat(savedItem.getColor()).isEqualTo("红色");
+        assertThat(savedItem.getSize()).isEqualTo("M");
+    }
+
+    @Test
     void completeOrderShouldSetCompleteTimeAndCreateOrderLevelSalesRecord() {
         Order order = new Order();
         order.setId("order-1");
@@ -71,7 +114,8 @@ class OrderServiceImplTest {
         shirt.setProductId("product-1");
         shirt.setProductCode("P001");
         shirt.setProductName("衬衫");
-        shirt.setSpecification("L");
+        shirt.setColor("蓝色");
+        shirt.setSize("L");
         shirt.setQuantity(3);
         shirt.setUnitPrice(80.0);
         shirt.setAmount(240.0);
@@ -81,7 +125,8 @@ class OrderServiceImplTest {
         coat.setProductId("product-2");
         coat.setProductCode("P002");
         coat.setProductName("外套");
-        coat.setSpecification("XL");
+        coat.setColor("黑色");
+        coat.setSize("XL");
         coat.setQuantity(2);
         coat.setUnitPrice(110.0);
         coat.setAmount(220.0);
@@ -120,6 +165,10 @@ class OrderServiceImplTest {
         assertThat(savedRecord.getItems()).hasSize(2);
         assertThat(savedRecord.getItems()).extracting(SalesRecord.SalesRecordItem::getProductName)
                 .containsExactly("衬衫", "外套");
+        assertThat(savedRecord.getItems()).extracting(SalesRecord.SalesRecordItem::getColor)
+                .containsExactly("蓝色", "黑色");
+        assertThat(savedRecord.getItems()).extracting(SalesRecord.SalesRecordItem::getSize)
+                .containsExactly("L", "XL");
     }
 
     @Test

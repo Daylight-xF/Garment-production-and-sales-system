@@ -369,7 +369,8 @@ public class SalesServiceImpl implements SalesService {
                         .productId(item.getProductId())
                         .productCode(item.getProductCode())
                         .productName(item.getProductName())
-                        .specification(item.getSpecification())
+                        .color(item.getColor())
+                        .size(item.getSize())
                         .quantity(item.getQuantity())
                         .unitPrice(item.getUnitPrice())
                         .amount(item.getAmount())
@@ -497,6 +498,7 @@ public class SalesServiceImpl implements SalesService {
                 record.getProductCode(),
                 record.getProductName(),
                 null,
+                null,
                 record.getQuantity(),
                 record.getUnitPrice(),
                 record.getAmount()));
@@ -511,7 +513,8 @@ public class SalesServiceImpl implements SalesService {
         for (SalesRecord.SalesRecordItem item : getNormalizedItems(record)) {
             if (contains(item.getProductName(), keyword)
                     || contains(item.getProductCode(), keyword)
-                    || contains(item.getSpecification(), keyword)) {
+                    || contains(item.getColor(), keyword)
+                    || contains(item.getSize(), keyword)) {
                 return true;
             }
         }

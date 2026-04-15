@@ -54,7 +54,16 @@
               {{ row.productName }}{{ row.productCode ? '-' + row.productCode : '' }}
             </template>
           </el-table-column>
-          <el-table-column prop="specification" label="规格" />
+          <el-table-column prop="color" label="颜色" width="110" align="center">
+            <template #default="{ row }">
+              {{ row.color || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="size" label="尺码" width="110" align="center">
+            <template #default="{ row }">
+              {{ row.size || '-' }}
+            </template>
+          </el-table-column>
           <el-table-column prop="quantity" label="数量" width="100" />
           <el-table-column prop="unitPrice" label="单价" width="120">
             <template #default="{ row }">¥{{ row.unitPrice?.toFixed(2) }}</template>

@@ -21,7 +21,9 @@ public class OrderItemDTO {
 
     private String productName;
 
-    private String specification;
+    private String color;
+
+    private String size;
 
     @Min(value = 1, message = "数量不能小于1")
     private Integer quantity;
