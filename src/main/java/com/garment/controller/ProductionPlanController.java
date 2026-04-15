@@ -39,7 +39,7 @@ public class ProductionPlanController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PLAN_READ')")
+    @PreAuthorize("hasAnyAuthority('PLAN_READ', 'INVENTORY_IN')")
     public Result<Map<String, Object>> getPlanList(
             @RequestParam(defaultValue = "") String keyword,
             @RequestParam(defaultValue = "") String status,

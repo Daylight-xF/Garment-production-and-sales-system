@@ -45,13 +45,13 @@
             index="/inventory/raw-material"
           >原材料库存</el-menu-item>
           <el-menu-item
+              v-if="hasInventoryItemPermission('pendingStockIn')"
+              index="/inventory/pending-stock-in"
+          >待入库</el-menu-item>
+          <el-menu-item
             v-if="hasInventoryItemPermission('finishedProduct')"
             index="/inventory/finished-product"
           >成品库存</el-menu-item>
-          <el-menu-item
-            v-if="hasInventoryItemPermission('pendingStockIn')"
-            index="/inventory/pending-stock-in"
-          >待入库</el-menu-item>
           <el-menu-item
             v-if="hasInventoryItemPermission('alert')"
             index="/inventory/alert"
@@ -66,8 +66,8 @@
             <el-icon><Document /></el-icon>
             <span>订单管理</span>
           </template>
-          <el-menu-item index="/order/list">订单列表</el-menu-item>
           <el-menu-item index="/order/create">创建订单</el-menu-item>
+          <el-menu-item index="/order/list">订单列表</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu
@@ -78,18 +78,10 @@
             <el-icon><TrendCharts /></el-icon>
             <span>销售管理</span>
           </template>
+          <el-menu-item index="/sales/customer">客户管理</el-menu-item>
           <el-menu-item index="/sales/record">销售记录</el-menu-item>
           <el-menu-item index="/sales/report">销售报表</el-menu-item>
-          <el-menu-item index="/sales/customer">客户管理</el-menu-item>
         </el-sub-menu>
-
-        <el-menu-item
-          v-if="hasMenuPermission('statistics')"
-          index="/statistics"
-        >
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>数据统计</template>
-        </el-menu-item>
 
         <el-sub-menu
           v-if="hasMenuPermission('system')"
@@ -102,6 +94,14 @@
           <el-menu-item index="/system/user">用户管理</el-menu-item>
           <el-menu-item index="/system/product-definition">产品定义</el-menu-item>
         </el-sub-menu>
+
+        <el-menu-item
+            v-if="hasMenuPermission('statistics')"
+            index="/statistics"
+        >
+          <el-icon><DataAnalysis /></el-icon>
+          <template #title>数据统计</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 

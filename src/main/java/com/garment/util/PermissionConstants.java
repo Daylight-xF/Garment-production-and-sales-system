@@ -56,6 +56,7 @@ public class PermissionConstants {
     public static final String[] PRODUCTION_MANAGER_PERMISSIONS = {
             PLAN_CREATE, PLAN_READ, PLAN_UPDATE, PLAN_DELETE, PLAN_APPROVE, TASK_ASSIGN, TASK_UPDATE,
             INVENTORY_READ,
+            PRODUCT_DEFINITION_READ,
             STATS_PRODUCTION, STATS_SALES, STATS_INVENTORY
     };
 
