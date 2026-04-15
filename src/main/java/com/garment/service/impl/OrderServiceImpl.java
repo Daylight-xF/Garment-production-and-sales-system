@@ -2,16 +2,19 @@ package com.garment.service.impl;
 
 import com.garment.dto.*;
 import com.garment.exception.BusinessException;
+import com.garment.model.FinishedProduct;
 import com.garment.model.Order;
 import com.garment.model.OrderItem;
 import com.garment.model.OrderLog;
 import com.garment.model.SalesRecord;
 import com.garment.model.User;
+import com.garment.repository.FinishedProductRepository;
 import com.garment.repository.OrderItemRepository;
 import com.garment.repository.OrderLogRepository;
 import com.garment.repository.OrderRepository;
 import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
+import com.garment.service.InventoryService;
 import com.garment.service.OrderService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -22,7 +25,9 @@ import org.springframework.util.StringUtils;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,17 +38,23 @@ public class OrderServiceImpl implements OrderService {
     private final OrderLogRepository orderLogRepository;
     private final UserRepository userRepository;
     private final SalesRecordRepository salesRecordRepository;
+    private final FinishedProductRepository finishedProductRepository;
+    private final InventoryService inventoryService;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OrderItemRepository orderItemRepository,
                             OrderLogRepository orderLogRepository,
                             UserRepository userRepository,
-                            SalesRecordRepository salesRecordRepository) {
+                            SalesRecordRepository salesRecordRepository,
+                            FinishedProductRepository finishedProductRepository,
+                            InventoryService inventoryService) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderLogRepository = orderLogRepository;
         this.userRepository = userRepository;
         this.salesRecordRepository = salesRecordRepository;
+        this.finishedProductRepository = finishedProductRepository;
+        this.inventoryService = inventoryService;
     }
 
     @Override
@@ -214,6 +225,27 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("仅已审核的订单可发货");
         }
 
+        List<OrderItem> items = orderItemRepository.findByOrderId(id);
+        List<ShippingDeductionPlan> deductionPlans = buildShippingDeductionPlans(items);
+        List<String> insufficientItems = deductionPlans.stream()
+                .filter(plan -> plan.product == null || plan.availableQuantity < plan.requiredQuantity)
+                .map(plan -> String.format("%s（需 %d，现有 %d）", plan.itemLabel, plan.requiredQuantity, plan.availableQuantity))
+                .collect(Collectors.toList());
+        if (!insufficientItems.isEmpty()) {
+            throw new BusinessException("订单发货失败，以下商品库存不足：" + String.join("；", insufficientItems));
+        }
+
+        for (ShippingDeductionPlan plan : deductionPlans) {
+            if (plan.requiredQuantity <= 0) {
+                continue;
+            }
+            inventoryService.fifoDeductFinishedProduct(
+                    plan.product.getId(),
+                    plan.requiredQuantity,
+                    "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
+            );
+        }
+
         order.setStatus("SHIPPED");
         order.setShipTime(new Date());
         orderRepository.save(order);
@@ -222,7 +254,6 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new BusinessException("用户不存在"));
         saveLog(id, userId, user.getRealName(), "SHIP", "订单发货");
 
-        List<OrderItem> items = orderItemRepository.findByOrderId(id);
         return convertToVO(order, items, null);
     }
 
@@ -380,5 +411,87 @@ public class OrderServiceImpl implements OrderService {
                 .items(itemDTOs)
                 .logs(logVOs)
                 .build();
+    }
+
+    private List<ShippingDeductionPlan> buildShippingDeductionPlans(List<OrderItem> items) {
+        Map<String, ShippingDeductionPlan> plans = new LinkedHashMap<>();
+        List<OrderItem> safeItems = items != null ? items : new ArrayList<>();
+
+        for (OrderItem item : safeItems) {
+            int requiredQuantity = item.getQuantity() != null ? item.getQuantity() : 0;
+            if (requiredQuantity <= 0) {
+                continue;
+            }
+
+            FinishedProduct matchedProduct = resolveFinishedProduct(item);
+            String itemLabel = formatOrderItemLabel(item);
+            String planKey = matchedProduct != null ? matchedProduct.getId() : "missing:" + itemLabel;
+
+            ShippingDeductionPlan plan = plans.computeIfAbsent(planKey,
+                    key -> new ShippingDeductionPlan(matchedProduct, itemLabel));
+            plan.requiredQuantity += requiredQuantity;
+        }
+
+        plans.values().forEach(plan -> plan.availableQuantity = getAvailableFinishedProductQuantity(plan.product));
+        return new ArrayList<>(plans.values());
+    }
+
+    private FinishedProduct resolveFinishedProduct(OrderItem item) {
+        if (StringUtils.hasText(item.getProductId())) {
+            return finishedProductRepository.findById(item.getProductId()).orElse(null);
+        }
+
+        return finishedProductRepository.findAll().stream()
+                .filter(product -> sameText(product.getProductCode(), item.getProductCode()))
+                .filter(product -> sameText(product.getName(), item.getProductName()))
+                .filter(product -> sameText(product.getColor(), item.getColor()))
+                .filter(product -> sameText(product.getSize(), item.getSize()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private int getAvailableFinishedProductQuantity(FinishedProduct product) {
+        if (product == null) {
+            return 0;
+        }
+
+        if (product.getLocations() != null && !product.getLocations().isEmpty()) {
+            return product.getLocations().stream()
+                    .mapToInt(location -> location.getQuantity() != null ? location.getQuantity() : 0)
+                    .sum();
+        }
+
+        return product.getQuantity() != null ? product.getQuantity() : 0;
+    }
+
+    private String formatOrderItemLabel(OrderItem item) {
+        StringBuilder label = new StringBuilder();
+        label.append(item.getProductName() != null ? item.getProductName() : "未知商品");
+        if (StringUtils.hasText(item.getProductCode())) {
+            label.append("-").append(item.getProductCode());
+        }
+        label.append("/").append(StringUtils.hasText(item.getColor()) ? item.getColor() : "-");
+        label.append("/").append(StringUtils.hasText(item.getSize()) ? item.getSize() : "-");
+        return label.toString();
+    }
+
+    private boolean sameText(String left, String right) {
+        return normalizeText(left).equals(normalizeText(right));
+    }
+
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
+    }
+
+    private static class ShippingDeductionPlan {
+        private final FinishedProduct product;
+        private final String itemLabel;
+        private int requiredQuantity;
+        private int availableQuantity;
+
+        private ShippingDeductionPlan(FinishedProduct product, String itemLabel) {
+            this.product = product;
+            this.itemLabel = itemLabel;
+        }
     }
 }

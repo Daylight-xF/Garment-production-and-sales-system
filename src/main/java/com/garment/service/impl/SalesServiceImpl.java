@@ -264,7 +264,6 @@ public class SalesServiceImpl implements SalesService {
     public CustomerVO createCustomer(CustomerCreateRequest request, String userId) {
         Customer customer = new Customer();
         customer.setName(request.getName());
-        customer.setContactPerson(request.getContactPerson());
         customer.setPhone(request.getPhone());
         customer.setEmail(request.getEmail());
         customer.setAddress(request.getAddress());
@@ -284,7 +283,6 @@ public class SalesServiceImpl implements SalesService {
                 .filter(c -> {
                     if (StringUtils.hasText(keyword)) {
                         boolean match = (c.getName() != null && c.getName().contains(keyword))
-                                || (c.getContactPerson() != null && c.getContactPerson().contains(keyword))
                                 || (c.getPhone() != null && c.getPhone().contains(keyword));
                         if (!match) {
                             return false;
@@ -331,9 +329,6 @@ public class SalesServiceImpl implements SalesService {
 
         if (request.getName() != null) {
             customer.setName(request.getName());
-        }
-        if (request.getContactPerson() != null) {
-            customer.setContactPerson(request.getContactPerson());
         }
         if (request.getPhone() != null) {
             customer.setPhone(request.getPhone());
@@ -409,7 +404,6 @@ public class SalesServiceImpl implements SalesService {
         return CustomerVO.builder()
                 .id(customer.getId())
                 .name(customer.getName())
-                .contactPerson(customer.getContactPerson())
                 .phone(customer.getPhone())
                 .email(customer.getEmail())
                 .address(customer.getAddress())

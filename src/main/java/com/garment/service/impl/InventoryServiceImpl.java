@@ -1004,4 +1004,84 @@ public class InventoryServiceImpl implements InventoryService {
         log.info("FIFO扣减完成 - 原材料ID: {}, 新总量: {}, 扣减详情: {}",
                 material.getId(), material.getQuantity(), deductionLog);
     }
+
+    @Override
+    public void fifoDeductFinishedProduct(String finishedProductId, int quantity, String reason) {
+        log.info("FIFO扣减成品 - ID: {}, 扣减数量: {}, 原因: {}", finishedProductId, quantity, reason);
+
+        FinishedProduct product = finishedProductRepository.findById(finishedProductId)
+                .orElseThrow(() -> new BusinessException("成品不存在"));
+
+        boolean hasLocationInventory = product.getLocations() != null && !product.getLocations().isEmpty();
+        StringBuilder deductionLog = new StringBuilder();
+        if (!hasLocationInventory) {
+            int available = product.getQuantity() != null ? product.getQuantity() : 0;
+            if (available < quantity) {
+                throw new BusinessException(String.format(
+                        "FIFO扣减失败：成品库存不足，需扣减 %d，实际可扣减 %d",
+                        quantity, available));
+            }
+            product.setQuantity(available - quantity);
+            deductionLog.append("总库存(").append(quantity).append(")");
+        } else {
+            List<LocationInfo> sortedLocations = new ArrayList<>(product.getLocations());
+            sortedLocations.sort((a, b) -> {
+                Date aTime = a.getCreatedAt() != null ? a.getCreatedAt() : new Date(0);
+                Date bTime = b.getCreatedAt() != null ? b.getCreatedAt() : new Date(0);
+                return aTime.compareTo(bTime);
+            });
+
+            int remaining = quantity;
+            for (LocationInfo loc : sortedLocations) {
+                if (remaining <= 0) {
+                    break;
+                }
+
+                int available = loc.getQuantity() != null ? loc.getQuantity() : 0;
+                if (available <= 0) {
+                    continue;
+                }
+
+                int deduct = Math.min(available, remaining);
+                loc.setQuantity(available - deduct);
+                remaining -= deduct;
+
+                log.info("FIFO扣减成品 - 位置: {}, 原库存: {}, 扣减: {}, 剩余: {}",
+                        loc.getLocation(), available, deduct, loc.getQuantity());
+                deductionLog.append(loc.getLocation()).append("(").append(deduct).append(")");
+            }
+
+            if (remaining > 0) {
+                throw new BusinessException(String.format(
+                        "FIFO扣减失败：位置总库存不足，需扣减 %d，实际可扣减 %d",
+                        quantity, quantity - remaining));
+            }
+
+            product.getLocations().removeIf(l -> l.getQuantity() == null || l.getQuantity() <= 0);
+        }
+
+        if (hasLocationInventory) {
+            recalculateFinishedProductQuantity(product);
+        }
+        finishedProductRepository.save(product);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType("FINISHED_PRODUCT");
+        record.setItemId(finishedProductId);
+        record.setItemName(product.getName());
+        record.setQuantity(-quantity);
+        record.setOperator("SYSTEM");
+        record.setOperatorName("系统自动");
+        record.setReason(reason + " [FIFO:" + deductionLog + "]");
+        inventoryRecordRepository.save(record);
+
+        if (product.getAlertThreshold() != null && product.getQuantity() <= product.getAlertThreshold()) {
+            createAlertIfNeeded("FINISHED_PRODUCT", product.getId(), product.getName(),
+                    product.getQuantity(), product.getAlertThreshold());
+        }
+
+        log.info("FIFO扣减成品完成 - 成品ID: {}, 新总量: {}, 扣减详情: {}",
+                product.getId(), product.getQuantity(), deductionLog);
+    }
 }

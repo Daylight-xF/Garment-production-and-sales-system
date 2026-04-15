@@ -236,8 +236,10 @@ async function handleCancel(id) {
     await cancelOrder(id)
     ElMessage.success('订单已取消')
     loadData()
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error.response?.data?.message || '发货失败')
+    }
   }
 }
 

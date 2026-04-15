@@ -5,7 +5,7 @@
         <el-form-item label="客户名称">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入客户名称/联系人/电话"
+            placeholder="请输入客户名称/电话"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -35,11 +35,10 @@
       </template>
 
       <el-table :data="customerList" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="name" label="客户名称" min-width="120" />
-        <el-table-column prop="contactPerson" label="联系人" width="100" />
-        <el-table-column prop="phone" label="联系电话" width="130" />
-        <el-table-column prop="email" label="邮箱" min-width="160" />
-        <el-table-column prop="address" label="地址" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="name" label="客户名称" min-width="80" align="center" />
+        <el-table-column prop="phone" label="联系电话" width="180" align="center"/>
+        <el-table-column prop="email" label="邮箱" min-width="70" align="center"/>
+        <el-table-column prop="address" label="地址" min-width="180" show-overflow-tooltip align="center"/>
         <el-table-column prop="level" label="等级" width="90" align="center">
           <template #default="{ row }">
             <el-tag
@@ -76,8 +75,8 @@
       :title="dialogType === 'add' ? '新增客户' : '编辑客户'"
       width="520px"
       destroy-on-close
-    >
-      <el-form
+      >
+        <el-form
         ref="customerFormRef"
         :model="customerForm"
         :rules="customerFormRules"
@@ -85,9 +84,6 @@
       >
         <el-form-item label="客户名称" prop="name">
           <el-input v-model="customerForm.name" placeholder="请输入客户名称" />
-        </el-form-item>
-        <el-form-item label="联系人" prop="contactPerson">
-          <el-input v-model="customerForm.contactPerson" placeholder="请输入联系人" />
         </el-form-item>
         <el-form-item label="联系电话" prop="phone">
           <el-input v-model="customerForm.phone" placeholder="请输入联系电话" />
@@ -153,7 +149,6 @@ const pagination = reactive({
 
 const customerForm = reactive({
   name: '',
-  contactPerson: '',
   phone: '',
   email: '',
   address: '',
@@ -224,7 +219,6 @@ function handleAdd() {
   dialogType.value = 'add'
   Object.assign(customerForm, {
     name: '',
-    contactPerson: '',
     phone: '',
     email: '',
     address: '',
@@ -239,7 +233,6 @@ function handleEdit(row) {
   currentId.value = row.id
   Object.assign(customerForm, {
     name: row.name,
-    contactPerson: row.contactPerson || '',
     phone: row.phone || '',
     email: row.email || '',
     address: row.address || '',
@@ -258,7 +251,6 @@ async function handleSubmit() {
     try {
       const data = {
         name: customerForm.name,
-        contactPerson: customerForm.contactPerson,
         phone: customerForm.phone,
         email: customerForm.email,
         address: customerForm.address,

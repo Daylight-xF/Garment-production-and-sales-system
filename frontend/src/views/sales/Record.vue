@@ -42,9 +42,9 @@
       </template>
 
       <el-table :data="recordList" v-loading="loading" border stripe class="record-table">
-        <el-table-column prop="customerName" label="客户名称" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="orderNo" label="订单编号" min-width="170" show-overflow-tooltip />
-        <el-table-column label="商品概览" min-width="220">
+        <el-table-column prop="customerName" label="客户名称" min-width="160" show-overflow-tooltip align="center"/>
+        <el-table-column prop="orderNo" label="订单编号" min-width="170" show-overflow-tooltip align="center"/>
+        <el-table-column label="商品概览" min-width="220" align="center">
           <template #default="{ row }">
             <div class="product-summary">
               <div class="product-name">{{ getProductPreview(row) }}</div>
@@ -55,7 +55,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="总金额" width="130" align="right">
+        <el-table-column label="总金额" width="130" align="center" >
           <template #default="{ row }">
             <span class="amount-text">{{ formatAmount(row.totalAmount) }}</span>
           </template>
@@ -367,6 +367,7 @@ function formatDateTime(value) {
 
 .product-meta {
   display: flex;
+  justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
   font-size: 12px;

@@ -7,8 +7,6 @@ public class CustomerUpdateRequest {
 
     private String name;
 
-    private String contactPerson;
-
     private String phone;
 
     private String email;

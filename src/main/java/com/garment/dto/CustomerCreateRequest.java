@@ -10,8 +10,6 @@ public class CustomerCreateRequest {
     @NotBlank(message = "客户名称不能为空")
     private String name;
 
-    private String contactPerson;
-
     private String phone;
 
     private String email;

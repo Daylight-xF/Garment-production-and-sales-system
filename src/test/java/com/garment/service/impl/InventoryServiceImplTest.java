@@ -2,6 +2,7 @@ package com.garment.service.impl;
 
 import com.garment.dto.FinishedProductVO;
 import com.garment.dto.StockInOutRequest;
+import com.garment.exception.BusinessException;
 import com.garment.model.FinishedProduct;
 import com.garment.model.InventoryRecord;
 import com.garment.model.LocationInfo;
@@ -32,8 +33,10 @@ import java.util.Date;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -197,6 +200,55 @@ class InventoryServiceImplTest {
 
         assertThat(result.getContent()).extracting(FinishedProductVO::getBatchNo)
                 .containsExactly("PC-20260415-9710");
+    }
+
+    @Test
+    void fifoDeductFinishedProductShouldConsumeOldestLocationsFirst() {
+        FinishedProduct product = buildFinishedProduct("finished-30", "BATCH-030", "T-shirt", "Y1", "white", "M");
+        product.setAlertThreshold(1);
+        product.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("A-01", 2, new Date(1000L)),
+                new LocationInfo("B-01", 5, new Date(2000L))
+        )));
+        product.setQuantity(7);
+
+        when(finishedProductRepository.findById("finished-30")).thenReturn(Optional.of(product));
+        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.fifoDeductFinishedProduct("finished-30", 3, "订单发货-ORD001");
+
+        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
+        verify(finishedProductRepository).save(productCaptor.capture());
+
+        FinishedProduct savedProduct = productCaptor.getValue();
+        assertThat(savedProduct.getQuantity()).isEqualTo(4);
+        assertThat(savedProduct.getLocations()).hasSize(1);
+        assertThat(savedProduct.getLocations().get(0).getLocation()).isEqualTo("B-01");
+        assertThat(savedProduct.getLocations().get(0).getQuantity()).isEqualTo(4);
+
+        ArgumentCaptor<InventoryRecord> recordCaptor = ArgumentCaptor.forClass(InventoryRecord.class);
+        verify(inventoryRecordRepository).save(recordCaptor.capture());
+        assertThat(recordCaptor.getValue().getReason()).contains("订单发货-ORD001");
+        assertThat(recordCaptor.getValue().getReason()).contains("FIFO:A-01(2)B-01(1)");
+    }
+
+    @Test
+    void fifoDeductFinishedProductShouldThrowWhenTotalStockIsInsufficient() {
+        FinishedProduct product = buildFinishedProduct("finished-31", "BATCH-031", "Hoodie", "W1", "black", "XL");
+        product.setLocations(new ArrayList<>(Collections.singletonList(
+                new LocationInfo("A-02", 1, new Date(1000L))
+        )));
+        product.setQuantity(1);
+
+        when(finishedProductRepository.findById("finished-31")).thenReturn(Optional.of(product));
+
+        assertThatThrownBy(() -> inventoryService.fifoDeductFinishedProduct("finished-31", 2, "订单发货-ORD002"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("FIFO扣减失败");
+
+        verify(finishedProductRepository, never()).save(any(FinishedProduct.class));
+        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
     }
 
     private ProductionPlan buildPlan(String id, String batchNo, String productName, String productCode, String color, String size) {

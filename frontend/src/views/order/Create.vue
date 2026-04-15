@@ -27,7 +27,7 @@
         </el-form-item>
 
         <el-form-item label="产品明细" prop="items">
-          <el-table :data="form.items" border style="width: 1280px">
+          <el-table :data="form.items" border style="width: 1360px">
             <el-table-column label="产品" min-width="190">
               <template #default="{ row, $index }">
                 <el-select
@@ -95,15 +95,26 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="单件成本" width="120">
+            <el-table-column label="单件成本" width="120" align="center">
               <template #default="{ row }">
-                {{ formatCurrency(row.costPrice) }}
+                <span
+                  class="cost-pill cost-pill--table"
+                  :class="{ 'cost-empty': row.costPrice == null }"
+                >
+                  {{ formatCurrency(row.costPrice) }}
+                </span>
               </template>
             </el-table-column>
 
-            <el-table-column label="金额" width="120">
+            <el-table-column label="金额" width="175" align="center">
               <template #default="{ row }">
-                {{ formatCurrency(row.amount) }}
+                <span
+                  class="amount-card amount-card--table"
+                  :class="{ 'amount-card--empty': !row.amount }"
+                >
+                  <span class="amount-card__label">合计</span>
+                  <span class="amount-card__value">{{ formatCurrency(row.amount) }}</span>
+                </span>
               </template>
             </el-table-column>
 
@@ -376,5 +387,73 @@ onMounted(() => {
 .row-actions {
   display: flex;
   gap: 8px;
+}
+
+.cost-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.cost-pill--table {
+  color: #b26a00;
+  background: linear-gradient(135deg, #fff7e6, #ffe7ba);
+  border: 1px solid #ffd591;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.cost-empty {
+  color: #909399;
+  background: linear-gradient(135deg, #f4f4f5, #ebeef5);
+  border-color: #dcdfe6;
+}
+
+.amount-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  padding: 6px 10px 7px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  gap: 2px;
+}
+
+.amount-card--table {
+  background: linear-gradient(180deg, #fff9ef, #ffe7c6);
+  border-color: #ffb86b;
+  box-shadow: 0 8px 18px rgba(255, 170, 74, 0.16);
+}
+
+.amount-card__label {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  color: #c27713;
+  letter-spacing: 0.08em;
+}
+
+.amount-card__value {
+  font-size: 18px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: #a74e00;
+}
+
+.amount-card--empty {
+  background: linear-gradient(135deg, #f4f4f5, #ebeef5);
+  border-color: #dcdfe6;
+  box-shadow: none;
+}
+
+.amount-card--empty .amount-card__label,
+.amount-card--empty .amount-card__value {
+  color: #909399;
 }
 </style>
