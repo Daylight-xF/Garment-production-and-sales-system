@@ -122,6 +122,15 @@ const routes = [
         name: 'ProductDefinition',
         component: () => import('../views/system/ProductDefinition.vue'),
         meta: { title: '产品定义', roles: ['admin'] }
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('../views/system/Profile.vue'),
+        meta: {
+          title: '个人信息',
+          requiresAuth: true
+        }
       }
     ]
   },

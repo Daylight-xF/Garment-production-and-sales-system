@@ -298,7 +298,7 @@ async function fetchUserList() {
     userList.value = data.list || data.records || []
     pagination.total = data.total || 0
   } catch (error) {
-    ElMessage.error('获取用户列表失败')
+    ElMessage.error(error.message || '获取用户列表失败')
   } finally {
     loading.value = false
   }

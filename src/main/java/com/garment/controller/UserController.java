@@ -1,5 +1,6 @@
 package com.garment.controller;
 
+import com.garment.dto.ChangePasswordRequest;
 import com.garment.dto.RoleAssignRequest;
 import com.garment.dto.Result;
 import com.garment.dto.UserCreateRequest;
@@ -103,5 +104,12 @@ public class UserController {
         Integer status = body.get("status");
         UserVO userVO = userService.updateUserStatus(id, status);
         return Result.success(userVO);
+    }
+
+    @PutMapping("/password")
+    public Result<Void> changePassword(Authentication authentication, @Valid @RequestBody ChangePasswordRequest request) {
+        String userId = (String) authentication.getPrincipal();
+        userService.changePassword(userId, request);
+        return Result.success();
     }
 }

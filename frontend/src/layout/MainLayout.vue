@@ -205,7 +205,7 @@ async function handleCommand(command) {
       // cancelled
     }
   } else if (command === 'profile') {
-    ElMessage.info('个人信息功能开发中')
+    router.push('/profile')
   }
 }
 </script>

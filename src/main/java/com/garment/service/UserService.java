@@ -1,5 +1,6 @@
 package com.garment.service;
 
+import com.garment.dto.ChangePasswordRequest;
 import com.garment.dto.RoleAssignRequest;
 import com.garment.dto.UserCreateRequest;
 import com.garment.dto.UserUpdateRequest;
@@ -28,4 +29,6 @@ public interface UserService {
     UserVO updateUserStatus(String id, Integer status);
 
     UserVO getCurrentUser(String userId);
+
+    void changePassword(String userId, ChangePasswordRequest request);
 }

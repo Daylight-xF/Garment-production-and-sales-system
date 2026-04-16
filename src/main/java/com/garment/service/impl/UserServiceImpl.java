@@ -1,5 +1,6 @@
 package com.garment.service.impl;
 
+import com.garment.dto.ChangePasswordRequest;
 import com.garment.dto.RoleAssignRequest;
 import com.garment.dto.UserCreateRequest;
 import com.garment.dto.UserUpdateRequest;
@@ -196,6 +197,21 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
         return convertToVO(user);
+    }
+
+    @Override
+    public void changePassword(String userId, ChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("用户不存在"));
+
+        // 验证旧密码是否正确
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new BusinessException("旧密码错误");
+        }
+
+        // 更新为新密码
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
     }
 
     private UserVO convertToVO(User user) {

@@ -90,3 +90,11 @@ export function getRoleList() {
     method: 'get'
   })
 }
+
+export function changePassword(data) {
+  return request({
+    url: '/users/password',
+    method: 'put',
+    data
+  })
+}
