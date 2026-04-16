@@ -1,7 +1,7 @@
 <template>
   <div class="statistics-container" v-loading="loading">
     <el-row :gutter="20" class="overview-row">
-      <el-col :span="6">
+      <el-col :span="6" v-if="canViewProduction">
         <el-card class="overview-card" shadow="hover">
           <div class="card-content">
             <div class="card-info">
@@ -13,7 +13,8 @@
           <div class="card-footer">已完成 {{ productionOverview.completedPlans || 0 }} / {{ productionOverview.totalPlans || 0 }} 个计划</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+
+      <el-col :span="canViewSales && !canViewProduction ? 12 : 6" v-if="canViewSales">
         <el-card class="overview-card" shadow="hover">
           <div class="card-content">
             <div class="card-info">
@@ -25,7 +26,8 @@
           <div class="card-footer">本月 ¥{{ formatNumber(salesOverview.monthlyAmount) }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+
+      <el-col :span="(canViewInventory && !canViewSales && !canViewProduction) ? 12 : 6" v-if="canViewInventory">
         <el-card class="overview-card" shadow="hover">
           <div class="card-content">
             <div class="card-info">
@@ -37,7 +39,8 @@
           <div class="card-footer">原材料 {{ inventoryOverview.rawMaterialTotalQuantity || 0 }} / 成品 {{ inventoryOverview.finishedProductTotalQuantity || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+
+      <el-col :span="6" v-if="canViewInventory">
         <el-card class="overview-card" shadow="hover">
           <div class="card-content">
             <div class="card-info">
@@ -52,13 +55,14 @@
     </el-row>
 
     <el-row :gutter="20" class="chart-row">
-      <el-col :span="12">
+      <el-col :span="canViewSales && canViewProduction ? 12 : (canViewSales || canViewProduction ? 24 : 0)" v-if="canViewSales">
         <el-card shadow="hover">
           <template #header><span class="chart-title">月度销售趋势</span></template>
           <div ref="salesTrendChartRef" class="chart-container"></div>
         </el-card>
       </el-col>
-      <el-col :span="12">
+
+      <el-col :span="canViewSales && canViewProduction ? 12 : (canViewSales || canViewProduction ? 24 : 0)" v-if="canViewProduction">
         <el-card shadow="hover">
           <template #header><span class="chart-title">计划状态分布</span></template>
           <div ref="planStatusChartRef" class="chart-container"></div>
@@ -67,13 +71,14 @@
     </el-row>
 
     <el-row :gutter="20" class="chart-row">
-      <el-col :span="12">
+      <el-col :span="canViewSales && canViewInventory ? 12 : (canViewSales || canViewInventory ? 24 : 0)" v-if="canViewSales">
         <el-card shadow="hover">
           <template #header><span class="chart-title">热销产品排行</span></template>
           <div ref="topProductsChartRef" class="chart-container"></div>
         </el-card>
       </el-col>
-      <el-col :span="12">
+
+      <el-col :span="canViewSales && canViewInventory ? 12 : (canViewSales || canViewInventory ? 24 : 0)" v-if="canViewInventory">
         <el-card shadow="hover">
           <template #header>
             <div class="chart-title-with-tabs">
@@ -89,7 +94,7 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" class="chart-row">
+    <el-row :gutter="20" class="chart-row" v-if="canViewProduction">
       <el-col :span="24">
         <el-card shadow="hover">
           <template #header><span class="chart-title">产品生产进度</span></template>
@@ -115,9 +120,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { DocumentChecked, TrendCharts, Box, Warning } from '@element-plus/icons-vue'
+import { useUserStore } from '../store/user'
 import {
   getProductionOverview,
   getPlanStatusDistribution,
@@ -131,8 +137,15 @@ import {
   getAlertStats
 } from '../api/statistics'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const inventoryTab = ref('raw')
+
+const canViewProduction = computed(() => userStore.hasPermission('STATS_PRODUCTION'))
+const canViewSales = computed(() => {
+  return userStore.hasPermission('STATS_SALES') && !userStore.hasRole('production_manager')
+})
+const canViewInventory = computed(() => userStore.hasPermission('STATS_INVENTORY'))
 
 const productionOverview = ref({})
 const salesOverview = ref({})
@@ -184,22 +197,22 @@ function getProgressColor(progress) {
 }
 
 function initCharts() {
-  if (salesTrendChartRef.value) {
+  if (salesTrendChartRef.value && canViewSales.value) {
     salesTrendChart = echarts.init(salesTrendChartRef.value)
   }
-  if (planStatusChartRef.value) {
+  if (planStatusChartRef.value && canViewProduction.value) {
     planStatusChart = echarts.init(planStatusChartRef.value)
   }
-  if (topProductsChartRef.value) {
+  if (topProductsChartRef.value && canViewSales.value) {
     topProductsChart = echarts.init(topProductsChartRef.value)
   }
-  if (inventoryDistChartRef.value) {
+  if (inventoryDistChartRef.value && canViewInventory.value) {
     inventoryDistChart = echarts.init(inventoryDistChartRef.value)
   }
 }
 
 function renderSalesTrend() {
-  if (!salesTrendChart) return
+  if (!salesTrendChart || !canViewSales.value) return
   const months = monthlySalesData.value.map(item => item.month)
   const amounts = monthlySalesData.value.map(item => item.amount || 0)
   const orders = monthlySalesData.value.map(item => item.orderCount || 0)
@@ -233,7 +246,7 @@ function renderSalesTrend() {
 }
 
 function renderPlanStatus() {
-  if (!planStatusChart) return
+  if (!planStatusChart || !canViewProduction.value) return
   const data = planStatusData.value.map(item => ({
     name: statusMap[item.status] || item.status,
     value: item.count,
@@ -255,7 +268,7 @@ function renderPlanStatus() {
 }
 
 function renderTopProducts() {
-  if (!topProductsChart) return
+  if (!topProductsChart || !canViewSales.value) return
   const names = topProductsData.value.map(item => item.productName)
   const quantities = topProductsData.value.map(item => item.quantity || 0)
   topProductsChart.setOption({
@@ -279,7 +292,7 @@ function renderTopProducts() {
 }
 
 function renderInventoryDistribution() {
-  if (!inventoryDistChart) return
+  if (!inventoryDistChart || !canViewInventory.value) return
   const data = inventoryTab.value === 'raw' ? rawMaterialDist.value : finishedProductDist.value
   const chartData = data.map(item => ({
     name: item.category,
@@ -310,59 +323,105 @@ function handleResize() {
 async function loadData() {
   loading.value = true
   try {
-    const [
-      prodRes,
-      planStatusRes,
-      progressRes,
-      salesRes,
-      monthlyRes,
-      topRes,
-      invRes,
-      rawDistRes,
-      finishedDistRes,
-      alertRes
-    ] = await Promise.allSettled([
-      getProductionOverview(),
-      getPlanStatusDistribution(),
-      getProductProgress(),
-      getSalesOverview(),
-      getMonthlySalesTrend(12),
-      getTopProducts(10),
-      getInventoryOverview(),
-      getRawMaterialDistribution(),
-      getFinishedProductDistribution(),
-      getAlertStats()
-    ])
+    const requests = []
 
-    if (prodRes.status === 'fulfilled' && prodRes.value?.code === 200) {
-      productionOverview.value = prodRes.value.data || {}
+    if (canViewProduction.value) {
+      requests.push(
+        getProductionOverview().then(res => ({ type: 'production', res })).catch(err => {
+          console.warn('加载生产概览失败:', err.message)
+          return null
+        }),
+        getPlanStatusDistribution().then(res => ({ type: 'planStatus', res })).catch(err => {
+          console.warn('加载计划状态分布失败:', err.message)
+          return null
+        }),
+        getProductProgress().then(res => ({ type: 'progress', res })).catch(err => {
+          console.warn('加载产品进度失败:', err.message)
+          return null
+        })
+      )
     }
-    if (planStatusRes.status === 'fulfilled' && planStatusRes.value?.code === 200) {
-      planStatusData.value = planStatusRes.value.data || []
+
+    if (canViewSales.value) {
+      requests.push(
+        getSalesOverview().then(res => ({ type: 'sales', res })).catch(err => {
+          console.warn('加载销售概览失败:', err.message)
+          return null
+        }),
+        getMonthlySalesTrend(12).then(res => ({ type: 'monthly', res })).catch(err => {
+          console.warn('加载销售趋势失败:', err.message)
+          return null
+        }),
+        getTopProducts(10).then(res => ({ type: 'topProducts', res })).catch(err => {
+          console.warn('加载热销产品失败:', err.message)
+          return null
+        })
+      )
     }
-    if (progressRes.status === 'fulfilled' && progressRes.value?.code === 200) {
-      productProgress.value = progressRes.value.data || []
+
+    if (canViewInventory.value) {
+      requests.push(
+        getInventoryOverview().then(res => ({ type: 'inventory', res })).catch(err => {
+          console.warn('加载库存概览失败:', err.message)
+          return null
+        }),
+        getRawMaterialDistribution().then(res => ({ type: 'rawDist', res })).catch(err => {
+          console.warn('加载原材料分布失败:', err.message)
+          return null
+        }),
+        getFinishedProductDistribution().then(res => ({ type: 'finishedDist', res })).catch(err => {
+          console.warn('加载成品分布失败:', err.message)
+          return null
+        }),
+        getAlertStats().then(res => ({ type: 'alert', res })).catch(err => {
+          console.warn('加载预警统计失败:', err.message)
+          return null
+        })
+      )
     }
-    if (salesRes.status === 'fulfilled' && salesRes.value?.code === 200) {
-      salesOverview.value = salesRes.value.data || {}
-    }
-    if (monthlyRes.status === 'fulfilled' && monthlyRes.value?.code === 200) {
-      monthlySalesData.value = monthlyRes.value.data || []
-    }
-    if (topRes.status === 'fulfilled' && topRes.value?.code === 200) {
-      topProductsData.value = topRes.value.data || []
-    }
-    if (invRes.status === 'fulfilled' && invRes.value?.code === 200) {
-      inventoryOverview.value = invRes.value.data || {}
-    }
-    if (rawDistRes.status === 'fulfilled' && rawDistRes.value?.code === 200) {
-      rawMaterialDist.value = rawDistRes.value.data || []
-    }
-    if (finishedDistRes.status === 'fulfilled' && finishedDistRes.value?.code === 200) {
-      finishedProductDist.value = finishedDistRes.value.data || []
-    }
-    if (alertRes.status === 'fulfilled' && alertRes.value?.code === 200) {
-      alertStats.value = alertRes.value.data || {}
+
+    if (requests.length > 0) {
+      const results = await Promise.allSettled(requests)
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+          const { type, res } = result.value
+          if (res?.code === 200 && res.data) {
+            switch (type) {
+              case 'production':
+                productionOverview.value = res.data || {}
+                break
+              case 'planStatus':
+                planStatusData.value = res.data || []
+                break
+              case 'progress':
+                productProgress.value = res.data || []
+                break
+              case 'sales':
+                salesOverview.value = res.data || {}
+                break
+              case 'monthly':
+                monthlySalesData.value = res.data || []
+                break
+              case 'topProducts':
+                topProductsData.value = res.data || []
+                break
+              case 'inventory':
+                inventoryOverview.value = res.data || {}
+                break
+              case 'rawDist':
+                rawMaterialDist.value = res.data || []
+                break
+              case 'finishedDist':
+                finishedProductDist.value = res.data || []
+                break
+              case 'alert':
+                alertStats.value = res.data || {}
+                break
+            }
+          }
+        }
+      })
     }
 
     await nextTick()

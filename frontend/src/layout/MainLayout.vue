@@ -163,7 +163,7 @@ const menuRoleMap = {
   inventory: ['admin', 'warehouse_staff', 'sales_staff'],
   order: ['admin', 'sales_staff'],
   sales: ['admin', 'sales_staff'],
-  statistics: ['admin', 'production_manager'],
+  statistics: ['admin', 'production_manager', 'warehouse_staff'],
   system: ['admin']
 }
 

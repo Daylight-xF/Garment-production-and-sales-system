@@ -106,11 +106,11 @@ const routes = [
         meta: { title: '客户管理', roles: ['admin', 'sales_staff'] }
       },
       {
-        path: 'statistics',
-        name: 'Statistics',
-        component: () => import('../views/Statistics.vue'),
-        meta: { title: '数据统计', roles: ['admin', 'production_manager'] }
-      },
+    path: 'statistics',
+    name: 'Statistics',
+    component: () => import('../views/Statistics.vue'),
+    meta: { title: '数据统计', roles: ['admin', 'production_manager', 'warehouse_staff'] }
+  },
       {
         path: 'system/user',
         name: 'UserManage',
