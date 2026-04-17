@@ -573,6 +573,7 @@ public class InventoryServiceImpl implements InventoryService {
         FinishedProduct newProduct = new FinishedProduct();
         newProduct.setProductCode(plan.getProductCode());
         newProduct.setName(plan.getProductName());
+        newProduct.setCategory(plan.getCategory());
         newProduct.setColor(plan.getColor());
         newProduct.setSize(plan.getSize());
         newProduct.setBatchNo(plan.getBatchNo());

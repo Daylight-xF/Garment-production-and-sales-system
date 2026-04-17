@@ -65,6 +65,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setProductDefinitionId(productDef.getId());
         plan.setProductCode(productDef.getProductCode());
         plan.setProductName(productDef.getProductName());
+        plan.setCategory(productDef.getCategory());
         plan.setQuantity(request.getQuantity());
         plan.setCompletedQuantity(0);
         plan.setUnit(request.getUnit() != null ? request.getUnit() : "件");
@@ -251,6 +252,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             plan.setProductDefinitionId(productDef.getId());
             plan.setProductCode(productDef.getProductCode());
             plan.setProductName(productDef.getProductName());
+            plan.setCategory(productDef.getCategory());
         }
         if (!isApproved && request.getProductName() != null) {
             plan.setProductName(request.getProductName());

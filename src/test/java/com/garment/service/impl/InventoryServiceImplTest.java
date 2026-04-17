@@ -114,6 +114,51 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void stockInShouldCreateNewFinishedProductWithPlanCategory() {
+        ProductionPlan plan = buildPlan("plan-category", "BATCH-CATEGORY", "Casual Pants", "P100", "Blue", "L");
+        plan.setCategory("BOTTOM");
+
+        FinishedProduct existing = buildFinishedProduct("finished-existing", "BATCH-OLD", "Casual Pants", "P100", "Black", "M");
+        existing.setLocations(new ArrayList<>(Arrays.asList(new LocationInfo("A-01", 8, new Date()))));
+        existing.setQuantity(8);
+
+        User operator = new User();
+        operator.setId("admin-1");
+        operator.setRealName("Admin");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("FINISHED_PRODUCT");
+        request.setItemId("plan-category");
+        request.setQuantity(10);
+        request.setReason("Production batch BATCH-CATEGORY stock in | Location:B-02 | First stock in");
+
+        when(productionPlanRepository.findById("plan-category")).thenReturn(Optional.of(plan));
+        when(finishedProductRepository.findAll()).thenReturn(Arrays.asList(existing));
+        when(userRepository.findById("admin-1")).thenReturn(Optional.of(operator));
+        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> {
+            FinishedProduct product = invocation.getArgument(0);
+            if (product.getId() == null) {
+                product.setId("finished-category");
+            }
+            return product;
+        });
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockIn(request, "admin-1");
+
+        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
+        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
+
+        assertThat(productCaptor.getAllValues())
+                .anySatisfy(product -> {
+                    assertThat(product.getBatchNo()).isEqualTo("BATCH-CATEGORY");
+                    assertThat(product.getProductCode()).isEqualTo("P100");
+                    assertThat(product.getCategory()).isEqualTo("BOTTOM");
+                });
+    }
+
+    @Test
     void stockInShouldReuseFinishedProductOnlyWhenAllIdentityFieldsMatch() {
         ProductionPlan plan = buildPlan("plan-3", "BATCH-003", "休闲裤", "P001", "黑色", "M");
 

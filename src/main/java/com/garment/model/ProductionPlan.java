@@ -27,6 +27,8 @@ public class ProductionPlan {
 
     private String productName;
 
+    private String category;
+
     private Integer quantity;
 
     private Integer completedQuantity = 0;

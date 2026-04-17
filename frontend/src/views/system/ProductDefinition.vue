@@ -128,7 +128,8 @@
               <el-select v-model="productForm.category" placeholder="请选择分类" style="width: 100%">
                 <el-option label="上装" value="上装" />
                 <el-option label="下装" value="下装" />
-                <el-option label="外套" value="外套" />
+                <el-option label="套装" value="套装" />
+                <el-option label="配饰" value="配饰" />
                 <el-option label="其他" value="其他" />
               </el-select>
             </el-form-item>
