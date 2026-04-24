@@ -178,6 +178,29 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         productionPlanRepository.save(plan);
     }
 
+    private void restoreRawMaterials(ProductionPlan planSnapshot, String batchNo) {
+        if (planSnapshot == null || Boolean.FALSE.equals(planSnapshot.getMaterialsDeducted())) {
+            return;
+        }
+
+        ProductDefinition productDef = productDefinitionRepository.findById(planSnapshot.getProductDefinitionId()).orElse(null);
+        if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
+            return;
+        }
+
+        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
+            double restoreQty = material.getQuantity() * planSnapshot.getQuantity();
+            int restoreIntQty = (int) Math.round(restoreQty);
+
+            StockInOutRequest stockInRequest = new StockInOutRequest();
+            stockInRequest.setItemType("RAW_MATERIAL");
+            stockInRequest.setItemId(material.getMaterialId());
+            stockInRequest.setQuantity(restoreIntQty);
+            stockInRequest.setReason("生产计划-" + batchNo + "-取消返还");
+            inventoryService.stockIn(stockInRequest, "system");
+        }
+    }
+
     private String formatDecimal(double value) {
         if (value == Math.floor(value)) {
             return String.valueOf((int) value);
@@ -391,10 +414,13 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
         }
 
-        assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(id, "PENDING", status, null));
+        Document transitionExtraFields = "CANCELLED".equals(status)
+                ? new Document("materialsDeducted", false)
+                : null;
+        assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(id, "PENDING", status, transitionExtraFields));
 
         if ("CANCELLED".equals(status)) {
-            restoreRawMaterials(id, plan.getBatchNo());
+            restoreRawMaterials(plan, plan.getBatchNo());
         }
 
         return convertToVO(productionPlanRepository.findById(id)
@@ -436,6 +462,13 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             productionTaskRepository.save(task);
         } catch (DuplicateKeyException ignored) {
             // The auto-create key prevents duplicate task creation under races.
+        } catch (RuntimeException ex) {
+            try {
+                mongoAtomicOpsService.transitionPlanStatus(planId, "IN_PROGRESS", "APPROVED", null);
+            } catch (RuntimeException rollbackIgnored) {
+                // Best-effort rollback only.
+            }
+            throw ex;
         }
 
         return convertToVO(productionPlanRepository.findById(planId)

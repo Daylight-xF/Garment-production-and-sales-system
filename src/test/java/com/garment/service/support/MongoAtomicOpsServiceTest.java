@@ -102,6 +102,9 @@ class MongoAtomicOpsServiceTest {
         assertThat(updateObject.get("$set", Document.class)).isEqualTo(
                 new Document("status", "APPROVED").append("approveBy", "manager-2")
         );
+        assertThat(updateObject.get("$inc", Document.class)).isEqualTo(
+                new Document("version", 1L)
+        );
         assertThat(updateObject.get("$currentDate", Document.class)).isEqualTo(
                 new Document("updateTime", true)
         );
@@ -125,7 +128,7 @@ class MongoAtomicOpsServiceTest {
                 new Document("_id", "raw-1").append("quantity", new Document("$gte", 5))
         );
         assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
-                new Document("$inc", new Document("quantity", -5))
+                new Document("$inc", new Document("quantity", -5).append("version", 1L))
                         .append("$currentDate", new Document("updateTime", true))
         );
     }
@@ -146,7 +149,7 @@ class MongoAtomicOpsServiceTest {
         assertThat(changed).isTrue();
         assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(new Document("_id", "finished-1"));
         assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
-                new Document("$inc", new Document("quantity", 3))
+                new Document("$inc", new Document("quantity", 3).append("version", 1L))
                         .append("$currentDate", new Document("updateTime", true))
         );
     }

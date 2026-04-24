@@ -12,6 +12,7 @@ import com.garment.repository.RawMaterialRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.InventoryService;
 import com.garment.service.support.MongoAtomicOpsService;
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -115,12 +116,32 @@ class ProductionPlanServiceImplTest {
         ProductionPlan plan = approvedPlan("plan-cancel-conflict", "PENDING");
 
         when(productionPlanRepository.findById("plan-cancel-conflict")).thenReturn(Optional.of(plan));
-        when(mongoAtomicOpsService.transitionPlanStatus("plan-cancel-conflict", "PENDING", "CANCELLED", null))
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-conflict"), eq("PENDING"), eq("CANCELLED"), any()))
                 .thenReturn(false);
 
         assertThatThrownBy(() -> productionPlanService.approvePlan("plan-cancel-conflict", "CANCELLED"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("计划状态已变更，请刷新后再操作");
+    }
+
+    @Test
+    void approvePlanShouldClearMaterialsDeductedInAtomicCancellationPayload() {
+        ProductionPlan before = approvedPlan("plan-cancel-success", "PENDING");
+        before.setProductDefinitionId("def-cancel");
+        ProductionPlan after = approvedPlan("plan-cancel-success", "CANCELLED");
+
+        when(productionPlanRepository.findById("plan-cancel-success"))
+                .thenReturn(Optional.of(before))
+                .thenReturn(Optional.of(after));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-success"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(productDefinitionRepository.findById("def-cancel")).thenReturn(Optional.empty());
+
+        productionPlanService.approvePlan("plan-cancel-success", "CANCELLED");
+
+        ArgumentCaptor<Document> payloadCaptor = ArgumentCaptor.forClass(Document.class);
+        verify(mongoAtomicOpsService).transitionPlanStatus(eq("plan-cancel-success"), eq("PENDING"), eq("CANCELLED"), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue().getBoolean("materialsDeducted")).isFalse();
     }
 
     @Test
@@ -157,6 +178,25 @@ class ProductionPlanServiceImplTest {
         verify(productionTaskRepository).save(taskCaptor.capture());
         assertThat(taskCaptor.getValue().getAutoCreateKey()).isEqualTo("AUTO:plan-start-success");
         verify(mongoAtomicOpsService).transitionPlanStatus("plan-start-success", "APPROVED", "IN_PROGRESS", null);
+    }
+
+    @Test
+    void startProductionShouldRollbackPlanStatusWhenTaskSaveFails() {
+        ProductionPlan before = approvedPlan("plan-start-rollback", "APPROVED");
+
+        when(productionPlanRepository.findById("plan-start-rollback")).thenReturn(Optional.of(before));
+        when(productionTaskRepository.findByPlanId("plan-start-rollback")).thenReturn(Collections.emptyList());
+        when(mongoAtomicOpsService.transitionPlanStatus("plan-start-rollback", "APPROVED", "IN_PROGRESS", null))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.transitionPlanStatus("plan-start-rollback", "IN_PROGRESS", "APPROVED", null))
+                .thenReturn(true);
+        when(productionTaskRepository.save(any(ProductionTask.class))).thenThrow(new RuntimeException("task save failed"));
+
+        assertThatThrownBy(() -> productionPlanService.startProduction("plan-start-rollback", "starter"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("task save failed");
+
+        verify(mongoAtomicOpsService).transitionPlanStatus("plan-start-rollback", "IN_PROGRESS", "APPROVED", null);
     }
 
     @Test

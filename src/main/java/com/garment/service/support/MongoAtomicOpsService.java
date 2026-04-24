@@ -67,7 +67,7 @@ public class MongoAtomicOpsService {
         if (minimumAfterChange != null) {
             query.addCriteria(Criteria.where("quantity").gte(minimumAfterChange - delta));
         }
-        Update update = new Update().inc("quantity", delta).currentDate("updateTime");
+        Update update = new Update().inc("quantity", delta).inc("version", 1L).currentDate("updateTime");
         return mongoTemplate.findAndModify(
                 query,
                 update,
@@ -81,7 +81,7 @@ public class MongoAtomicOpsService {
         if (minimumAfterChange != null) {
             query.addCriteria(Criteria.where("quantity").gte(minimumAfterChange - delta));
         }
-        Update update = new Update().inc("quantity", delta).currentDate("updateTime");
+        Update update = new Update().inc("quantity", delta).inc("version", 1L).currentDate("updateTime");
         return mongoTemplate.findAndModify(
                 query,
                 update,
@@ -93,7 +93,7 @@ public class MongoAtomicOpsService {
     private boolean transitionStatus(String id, String expectedStatus, String nextStatus, Document extraFields,
                                      Class<?> entityType) {
         Query query = Query.query(Criteria.where("_id").is(id).and("status").is(expectedStatus));
-        Update update = new Update().set("status", nextStatus).currentDate("updateTime");
+        Update update = new Update().set("status", nextStatus).inc("version", 1L).currentDate("updateTime");
         if (extraFields != null) {
             extraFields.forEach((key, value) -> {
                 if (!RESERVED_STATUS_FIELDS.contains(key)) {
