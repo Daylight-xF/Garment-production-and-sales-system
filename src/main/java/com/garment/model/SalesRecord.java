@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
@@ -20,6 +21,7 @@ public class SalesRecord {
     @Id
     private String id;
 
+    @Indexed(unique = true, sparse = true)
     private String orderId;
 
     private String orderNo;
