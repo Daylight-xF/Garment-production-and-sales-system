@@ -3,6 +3,7 @@ package com.garment.service.support;
 import com.garment.model.CounterSequence;
 import com.garment.model.FinishedProduct;
 import com.garment.model.Order;
+import com.garment.model.ProductionPlan;
 import com.garment.model.RawMaterial;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
@@ -150,6 +151,80 @@ class MongoAtomicOpsServiceTest {
         assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(new Document("_id", "finished-1"));
         assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
                 new Document("$inc", new Document("quantity", 3).append("version", 1L))
+                        .append("$currentDate", new Document("updateTime", true))
+        );
+    }
+
+    @Test
+    void markPlanMaterialsRestoreInProgressShouldGuardOnRestoreOwnership() {
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class)))
+                .thenReturn(new ProductionPlan());
+
+        boolean changed = mongoAtomicOpsService.markPlanMaterialsRestoreInProgress("plan-1");
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(queryCaptor.capture(), updateCaptor.capture(),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class));
+
+        assertThat(changed).isTrue();
+        assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(
+                new Document("_id", "plan-1")
+                        .append("materialsDeducted", true)
+                        .append("materialsRestoreInProgress", new Document("$ne", true))
+        );
+        assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
+                new Document("$set", new Document("materialsRestoreInProgress", true))
+                        .append("$inc", new Document("version", 1L))
+                        .append("$currentDate", new Document("updateTime", true))
+        );
+    }
+
+    @Test
+    void completePlanMaterialsRestoreShouldClearFlagAndProgressMarker() {
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class)))
+                .thenReturn(new ProductionPlan());
+
+        boolean changed = mongoAtomicOpsService.completePlanMaterialsRestore("plan-2");
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(queryCaptor.capture(), updateCaptor.capture(),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class));
+
+        assertThat(changed).isTrue();
+        assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(
+                new Document("_id", "plan-2").append("materialsRestoreInProgress", true)
+        );
+        assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
+                new Document("$set", new Document("materialsDeducted", false).append("materialsRestoreInProgress", false))
+                        .append("$inc", new Document("version", 1L))
+                        .append("$currentDate", new Document("updateTime", true))
+        );
+    }
+
+    @Test
+    void releasePlanMaterialsRestoreShouldOnlyClearInProgressMarker() {
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class)))
+                .thenReturn(new ProductionPlan());
+
+        boolean changed = mongoAtomicOpsService.releasePlanMaterialsRestore("plan-3");
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(queryCaptor.capture(), updateCaptor.capture(),
+                any(FindAndModifyOptions.class), eq(ProductionPlan.class));
+
+        assertThat(changed).isTrue();
+        assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(
+                new Document("_id", "plan-3").append("materialsRestoreInProgress", true)
+        );
+        assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
+                new Document("$set", new Document("materialsRestoreInProgress", false))
+                        .append("$inc", new Document("version", 1L))
                         .append("$currentDate", new Document("updateTime", true))
         );
     }

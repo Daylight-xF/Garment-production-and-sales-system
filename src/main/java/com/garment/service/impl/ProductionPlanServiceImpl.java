@@ -151,41 +151,25 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
     }
 
-    private void restoreRawMaterials(String planId, String batchNo) {
-        ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
-        if (plan == null || Boolean.FALSE.equals(plan.getMaterialsDeducted())) {
-            return;
-        }
-
-        ProductDefinition productDef = productDefinitionRepository.findById(plan.getProductDefinitionId()).orElse(null);
-        if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
-            return;
-        }
-
-        for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
-            double restoreQty = material.getQuantity() * plan.getQuantity();
-            int restoreIntQty = (int) Math.round(restoreQty);
-
-            StockInOutRequest stockInRequest = new StockInOutRequest();
-            stockInRequest.setItemType("RAW_MATERIAL");
-            stockInRequest.setItemId(material.getMaterialId());
-            stockInRequest.setQuantity(restoreIntQty);
-            stockInRequest.setReason("生产计划-" + batchNo + "-取消返还");
-            inventoryService.stockIn(stockInRequest, "system");
-        }
-
-        plan.setMaterialsDeducted(false);
-        productionPlanRepository.save(plan);
-    }
-
-    private void restoreRawMaterials(ProductionPlan planSnapshot, String batchNo) {
+    private List<StockInOutRequest> buildRawMaterialRestoreRequests(ProductionPlan planSnapshot, String batchNo,
+                                                                   boolean strictValidation) {
+        List<StockInOutRequest> restoreRequests = new ArrayList<>();
         if (planSnapshot == null || Boolean.FALSE.equals(planSnapshot.getMaterialsDeducted())) {
-            return;
+            return restoreRequests;
         }
 
         ProductDefinition productDef = productDefinitionRepository.findById(planSnapshot.getProductDefinitionId()).orElse(null);
-        if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
-            return;
+        if (productDef == null) {
+            if (strictValidation) {
+                throw new BusinessException("产品定义不存在，无法返还原材料");
+            }
+            return restoreRequests;
+        }
+        if (productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
+            if (strictValidation) {
+                throw new BusinessException("产品定义未配置原材料，无法返还原材料");
+            }
+            return restoreRequests;
         }
 
         for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
@@ -197,7 +181,52 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             stockInRequest.setItemId(material.getMaterialId());
             stockInRequest.setQuantity(restoreIntQty);
             stockInRequest.setReason("生产计划-" + batchNo + "-取消返还");
-            inventoryService.stockIn(stockInRequest, "system");
+            restoreRequests.add(stockInRequest);
+        }
+
+        return restoreRequests;
+    }
+
+    private void rollbackRestoredRawMaterials(List<StockInOutRequest> restoredRequests, String batchNo) {
+        for (int i = restoredRequests.size() - 1; i >= 0; i--) {
+            StockInOutRequest restoredRequest = restoredRequests.get(i);
+            StockInOutRequest rollbackRequest = new StockInOutRequest();
+            rollbackRequest.setItemType(restoredRequest.getItemType());
+            rollbackRequest.setItemId(restoredRequest.getItemId());
+            rollbackRequest.setQuantity(restoredRequest.getQuantity());
+            rollbackRequest.setReason("生产计划-" + batchNo + "-取消返还回滚");
+            inventoryService.stockOut(rollbackRequest, "system");
+        }
+    }
+
+    private void executeRawMaterialRestore(List<StockInOutRequest> restoreRequests, String batchNo) {
+        List<StockInOutRequest> restoredRequests = new ArrayList<>();
+        try {
+            for (StockInOutRequest restoreRequest : restoreRequests) {
+                inventoryService.stockIn(restoreRequest, "system");
+                restoredRequests.add(restoreRequest);
+            }
+        } catch (RuntimeException ex) {
+            try {
+                rollbackRestoredRawMaterials(restoredRequests, batchNo);
+            } catch (RuntimeException rollbackEx) {
+                IllegalStateException fatal = new IllegalStateException("原材料返还失败且补偿回滚失败，请立即人工核对库存", rollbackEx);
+                fatal.addSuppressed(ex);
+                throw fatal;
+            }
+            throw ex;
+        }
+    }
+
+    private void completePlanMaterialRestore(String planId) {
+        if (!mongoAtomicOpsService.completePlanMaterialsRestore(planId)) {
+            throw new IllegalStateException("原材料返还成功，但计划返还标记未能完成更新，请立即人工核对生产计划");
+        }
+    }
+
+    private void releasePlanMaterialRestore(String planId, RuntimeException ex) {
+        if (!mongoAtomicOpsService.releasePlanMaterialsRestore(planId)) {
+            throw new IllegalStateException("原材料返还失败，且计划返还标记未能回滚，请立即人工核对生产计划", ex);
         }
     }
 
@@ -379,7 +408,28 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("只有【已取消】状态的生产计划才能删除，当前计划状态为：" + statusText);
         }
 
-        restoreRawMaterials(id, plan.getBatchNo());
+        if (Boolean.TRUE.equals(plan.getMaterialsRestoreInProgress())) {
+            throw new BusinessException("计划原材料返还处理中，请稍后重试");
+        }
+
+        List<StockInOutRequest> restoreRequests = buildRawMaterialRestoreRequests(plan, plan.getBatchNo(), false);
+        if (Boolean.TRUE.equals(plan.getMaterialsDeducted()) && restoreRequests.isEmpty()) {
+            throw new BusinessException("原材料返还信息缺失，请先人工核对后再删除");
+        }
+        if (!restoreRequests.isEmpty()) {
+            if (!mongoAtomicOpsService.markPlanMaterialsRestoreInProgress(id)) {
+                throw new BusinessException("计划状态已变更，请刷新后再操作");
+            }
+            try {
+                executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                completePlanMaterialRestore(id);
+            } catch (IllegalStateException fatalEx) {
+                throw fatalEx;
+            } catch (RuntimeException ex) {
+                releasePlanMaterialRestore(id, ex);
+                throw ex;
+            }
+        }
 
         productionPlanRepository.deleteById(id);
     }
@@ -414,13 +464,24 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
         }
 
-        Document transitionExtraFields = "CANCELLED".equals(status)
-                ? new Document("materialsDeducted", false)
+        List<StockInOutRequest> restoreRequests = "CANCELLED".equals(status)
+                ? buildRawMaterialRestoreRequests(plan, plan.getBatchNo(), true)
+                : new ArrayList<>();
+        Document transitionExtraFields = !restoreRequests.isEmpty()
+                ? new Document("materialsRestoreInProgress", true)
                 : null;
         assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(id, "PENDING", status, transitionExtraFields));
 
-        if ("CANCELLED".equals(status)) {
-            restoreRawMaterials(plan, plan.getBatchNo());
+        if (!restoreRequests.isEmpty()) {
+            try {
+                executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                completePlanMaterialRestore(id);
+            } catch (IllegalStateException fatalEx) {
+                throw fatalEx;
+            } catch (RuntimeException ex) {
+                releasePlanMaterialRestore(id, ex);
+                throw ex;
+            }
         }
 
         return convertToVO(productionPlanRepository.findById(id)
@@ -463,10 +524,18 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         } catch (DuplicateKeyException ignored) {
             // The auto-create key prevents duplicate task creation under races.
         } catch (RuntimeException ex) {
+            boolean rolledBack;
             try {
-                mongoAtomicOpsService.transitionPlanStatus(planId, "IN_PROGRESS", "APPROVED", null);
-            } catch (RuntimeException rollbackIgnored) {
-                // Best-effort rollback only.
+                rolledBack = mongoAtomicOpsService.transitionPlanStatus(planId, "IN_PROGRESS", "APPROVED", null);
+            } catch (RuntimeException rollbackEx) {
+                IllegalStateException fatal = new IllegalStateException("任务创建失败，且计划状态回滚失败，请立即人工核对生产计划", rollbackEx);
+                fatal.addSuppressed(ex);
+                throw fatal;
+            }
+            if (!rolledBack) {
+                IllegalStateException fatal = new IllegalStateException("任务创建失败，且计划状态回滚未生效，请立即人工核对生产计划");
+                fatal.addSuppressed(ex);
+                throw fatal;
             }
             throw ex;
         }

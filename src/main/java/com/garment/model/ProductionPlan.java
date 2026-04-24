@@ -54,6 +54,8 @@ public class ProductionPlan {
 
     private Boolean materialsDeducted = false;
 
+    private Boolean materialsRestoreInProgress = false;
+
     @CreatedDate
     private Date createTime;
 

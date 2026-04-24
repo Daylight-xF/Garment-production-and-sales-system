@@ -1,6 +1,7 @@
 package com.garment.service.impl;
 
 import com.garment.dto.PlanCreateRequest;
+import com.garment.dto.StockInOutRequest;
 import com.garment.exception.BusinessException;
 import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -114,8 +116,11 @@ class ProductionPlanServiceImplTest {
     @Test
     void approvePlanShouldThrowBusinessConflictWhenAtomicCancellationFails() {
         ProductionPlan plan = approvedPlan("plan-cancel-conflict", "PENDING");
+        plan.setProductDefinitionId("def-cancel-conflict");
+        ProductDefinition definition = definitionWithMaterial("def-cancel-conflict", "raw-conflict", 1.0);
 
         when(productionPlanRepository.findById("plan-cancel-conflict")).thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-cancel-conflict")).thenReturn(Optional.of(definition));
         when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-conflict"), eq("PENDING"), eq("CANCELLED"), any()))
                 .thenReturn(false);
 
@@ -125,23 +130,118 @@ class ProductionPlanServiceImplTest {
     }
 
     @Test
-    void approvePlanShouldClearMaterialsDeductedInAtomicCancellationPayload() {
+    void approvePlanShouldMarkMaterialsRestoreInProgressInAtomicCancellationPayload() {
         ProductionPlan before = approvedPlan("plan-cancel-success", "PENDING");
         before.setProductDefinitionId("def-cancel");
         ProductionPlan after = approvedPlan("plan-cancel-success", "CANCELLED");
+        ProductDefinition definition = definitionWithMaterial("def-cancel", "raw-1", 2.0);
 
         when(productionPlanRepository.findById("plan-cancel-success"))
                 .thenReturn(Optional.of(before))
                 .thenReturn(Optional.of(after));
         when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-success"), eq("PENDING"), eq("CANCELLED"), any()))
                 .thenReturn(true);
-        when(productDefinitionRepository.findById("def-cancel")).thenReturn(Optional.empty());
+        when(productDefinitionRepository.findById("def-cancel")).thenReturn(Optional.of(definition));
+        when(mongoAtomicOpsService.completePlanMaterialsRestore("plan-cancel-success")).thenReturn(true);
 
         productionPlanService.approvePlan("plan-cancel-success", "CANCELLED");
 
         ArgumentCaptor<Document> payloadCaptor = ArgumentCaptor.forClass(Document.class);
         verify(mongoAtomicOpsService).transitionPlanStatus(eq("plan-cancel-success"), eq("PENDING"), eq("CANCELLED"), payloadCaptor.capture());
-        assertThat(payloadCaptor.getValue().getBoolean("materialsDeducted")).isFalse();
+        assertThat(payloadCaptor.getValue().getBoolean("materialsRestoreInProgress")).isTrue();
+        verify(mongoAtomicOpsService).completePlanMaterialsRestore("plan-cancel-success");
+    }
+
+    @Test
+    void approvePlanShouldReleaseRestoreMarkerWhenCancellationRestoreFails() {
+        ProductionPlan before = approvedPlan("plan-cancel-restore-fail", "PENDING");
+        before.setProductDefinitionId("def-cancel-fail");
+        ProductDefinition definition = definitionWithMaterial("def-cancel-fail", "raw-2", 1.5);
+
+        when(productionPlanRepository.findById("plan-cancel-restore-fail")).thenReturn(Optional.of(before));
+        when(productDefinitionRepository.findById("def-cancel-fail")).thenReturn(Optional.of(definition));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-restore-fail"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.releasePlanMaterialsRestore("plan-cancel-restore-fail")).thenReturn(true);
+        doThrow(new RuntimeException("restore failed"))
+                .when(inventoryService).stockIn(any(StockInOutRequest.class), eq("system"));
+
+        assertThatThrownBy(() -> productionPlanService.approvePlan("plan-cancel-restore-fail", "CANCELLED"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("restore failed");
+
+        verify(mongoAtomicOpsService).releasePlanMaterialsRestore("plan-cancel-restore-fail");
+    }
+
+    @Test
+    void approvePlanShouldKeepRestoreMarkerWhenCompensationRollbackFails() {
+        ProductionPlan before = approvedPlan("plan-cancel-compensation-fail", "PENDING");
+        before.setProductDefinitionId("def-cancel-compensation-fail");
+        ProductDefinition definition = definitionWithMaterials(
+                "def-cancel-compensation-fail",
+                new ProductDefinition.ProductMaterial("raw-a", "Cotton", null, 1.0, "kg"),
+                new ProductDefinition.ProductMaterial("raw-b", "Linen", null, 1.0, "kg")
+        );
+
+        when(productionPlanRepository.findById("plan-cancel-compensation-fail")).thenReturn(Optional.of(before));
+        when(productDefinitionRepository.findById("def-cancel-compensation-fail")).thenReturn(Optional.of(definition));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-compensation-fail"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(inventoryService.stockIn(any(StockInOutRequest.class), eq("system")))
+                .thenReturn(null)
+                .thenThrow(new RuntimeException("restore failed"));
+        when(inventoryService.stockOut(any(StockInOutRequest.class), eq("system")))
+                .thenThrow(new RuntimeException("rollback failed"));
+
+        assertThatThrownBy(() -> productionPlanService.approvePlan("plan-cancel-compensation-fail", "CANCELLED"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("补偿回滚失败");
+
+        verify(mongoAtomicOpsService, never()).releasePlanMaterialsRestore("plan-cancel-compensation-fail");
+    }
+
+    @Test
+    void approvePlanShouldKeepRestoreMarkerWhenFinalizeStateUpdateFails() {
+        ProductionPlan before = approvedPlan("plan-cancel-finalize-fail", "PENDING");
+        before.setProductDefinitionId("def-cancel-finalize-fail");
+        ProductDefinition definition = definitionWithMaterial("def-cancel-finalize-fail", "raw-finalize", 1.0);
+
+        when(productionPlanRepository.findById("plan-cancel-finalize-fail")).thenReturn(Optional.of(before));
+        when(productDefinitionRepository.findById("def-cancel-finalize-fail")).thenReturn(Optional.of(definition));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-finalize-fail"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.completePlanMaterialsRestore("plan-cancel-finalize-fail")).thenReturn(false);
+
+        assertThatThrownBy(() -> productionPlanService.approvePlan("plan-cancel-finalize-fail", "CANCELLED"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("返还标记未能完成更新");
+
+        verify(mongoAtomicOpsService, never()).releasePlanMaterialsRestore("plan-cancel-finalize-fail");
+    }
+
+    @Test
+    void deletePlanShouldRejectWhenMaterialsRestoreIsInProgress() {
+        ProductionPlan cancelledPlan = approvedPlan("plan-delete-in-progress", "CANCELLED");
+        cancelledPlan.setMaterialsRestoreInProgress(true);
+
+        when(productionPlanRepository.findById("plan-delete-in-progress")).thenReturn(Optional.of(cancelledPlan));
+
+        assertThatThrownBy(() -> productionPlanService.deletePlan("plan-delete-in-progress"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("返还处理中");
+    }
+
+    @Test
+    void deletePlanShouldRejectWhenRestoreMetadataIsMissing() {
+        ProductionPlan cancelledPlan = approvedPlan("plan-delete-missing-restore", "CANCELLED");
+        cancelledPlan.setProductDefinitionId("def-delete-missing");
+
+        when(productionPlanRepository.findById("plan-delete-missing-restore")).thenReturn(Optional.of(cancelledPlan));
+        when(productDefinitionRepository.findById("def-delete-missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productionPlanService.deletePlan("plan-delete-missing-restore"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("返还信息缺失");
     }
 
     @Test
@@ -200,6 +300,23 @@ class ProductionPlanServiceImplTest {
     }
 
     @Test
+    void startProductionShouldSurfaceRollbackFailureWhenTaskSaveFails() {
+        ProductionPlan before = approvedPlan("plan-start-rollback-fail", "APPROVED");
+
+        when(productionPlanRepository.findById("plan-start-rollback-fail")).thenReturn(Optional.of(before));
+        when(productionTaskRepository.findByPlanId("plan-start-rollback-fail")).thenReturn(Collections.emptyList());
+        when(mongoAtomicOpsService.transitionPlanStatus("plan-start-rollback-fail", "APPROVED", "IN_PROGRESS", null))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.transitionPlanStatus("plan-start-rollback-fail", "IN_PROGRESS", "APPROVED", null))
+                .thenReturn(false);
+        when(productionTaskRepository.save(any(ProductionTask.class))).thenThrow(new RuntimeException("task save failed"));
+
+        assertThatThrownBy(() -> productionPlanService.startProduction("plan-start-rollback-fail", "starter"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("计划状态回滚未生效");
+    }
+
+    @Test
     void completePlanShouldThrowBusinessConflictWhenAtomicTransitionFails() {
         ProductionPlan plan = approvedPlan("plan-complete-conflict", "IN_PROGRESS");
         ProductionTask task = new ProductionTask();
@@ -225,5 +342,25 @@ class ProductionPlanServiceImplTest {
         plan.setStatus(status);
         plan.setMaterialsDeducted(true);
         return plan;
+    }
+
+    private ProductDefinition definitionWithMaterial(String definitionId, String materialId, double unitQuantity) {
+        ProductDefinition.ProductMaterial material = new ProductDefinition.ProductMaterial();
+        material.setMaterialId(materialId);
+        material.setMaterialName("Cotton");
+        material.setQuantity(unitQuantity);
+        material.setUnit("kg");
+
+        ProductDefinition definition = new ProductDefinition();
+        definition.setId(definitionId);
+        definition.setMaterials(Collections.singletonList(material));
+        return definition;
+    }
+
+    private ProductDefinition definitionWithMaterials(String definitionId, ProductDefinition.ProductMaterial... materials) {
+        ProductDefinition definition = new ProductDefinition();
+        definition.setId(definitionId);
+        definition.setMaterials(java.util.Arrays.asList(materials));
+        return definition;
     }
 }

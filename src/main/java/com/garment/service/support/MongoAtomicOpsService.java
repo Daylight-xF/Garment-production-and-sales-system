@@ -62,6 +62,53 @@ public class MongoAtomicOpsService {
         return transitionStatus(planId, expectedStatus, nextStatus, extraFields, ProductionPlan.class);
     }
 
+    public boolean markPlanMaterialsRestoreInProgress(String planId) {
+        Query query = Query.query(Criteria.where("_id").is(planId)
+                .and("materialsDeducted").is(true)
+                .and("materialsRestoreInProgress").ne(true));
+        Update update = new Update()
+                .set("materialsRestoreInProgress", true)
+                .inc("version", 1L)
+                .currentDate("updateTime");
+        return mongoTemplate.findAndModify(
+                query,
+                update,
+                FindAndModifyOptions.options().returnNew(true),
+                ProductionPlan.class
+        ) != null;
+    }
+
+    public boolean completePlanMaterialsRestore(String planId) {
+        Query query = Query.query(Criteria.where("_id").is(planId)
+                .and("materialsRestoreInProgress").is(true));
+        Update update = new Update()
+                .set("materialsDeducted", false)
+                .set("materialsRestoreInProgress", false)
+                .inc("version", 1L)
+                .currentDate("updateTime");
+        return mongoTemplate.findAndModify(
+                query,
+                update,
+                FindAndModifyOptions.options().returnNew(true),
+                ProductionPlan.class
+        ) != null;
+    }
+
+    public boolean releasePlanMaterialsRestore(String planId) {
+        Query query = Query.query(Criteria.where("_id").is(planId)
+                .and("materialsRestoreInProgress").is(true));
+        Update update = new Update()
+                .set("materialsRestoreInProgress", false)
+                .inc("version", 1L)
+                .currentDate("updateTime");
+        return mongoTemplate.findAndModify(
+                query,
+                update,
+                FindAndModifyOptions.options().returnNew(true),
+                ProductionPlan.class
+        ) != null;
+    }
+
     public boolean changeRawMaterialQuantity(String materialId, int delta, Integer minimumAfterChange) {
         Query query = Query.query(Criteria.where("_id").is(materialId));
         if (minimumAfterChange != null) {
