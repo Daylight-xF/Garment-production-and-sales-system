@@ -167,25 +167,25 @@
             <div class="block-title">商品明细</div>
             <el-table :data="detailItems" border stripe>
               <el-table-column type="index" label="#" width="60" align="center" />
-              <el-table-column prop="productName" label="商品名称" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="productCode" label="商品编码" width="140" />
-              <el-table-column prop="color" label="颜色" width="120" align="center">
+              <el-table-column prop="productName" label="商品名称" min-width="180" show-overflow-tooltip align="center"/>
+              <el-table-column prop="productCode" label="商品编码" width="140" align="center"/>
+              <el-table-column prop="color" label="颜色" width="80" align="center">
                 <template #default="{ row }">
                   {{ row.color || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column prop="size" label="尺码" width="120" align="center">
+              <el-table-column prop="size" label="尺码" width="80" align="center">
                 <template #default="{ row }">
                   {{ row.size || '-' }}
                 </template>
               </el-table-column>
               <el-table-column prop="quantity" label="数量" width="90" align="center" />
-              <el-table-column label="单价" width="110" align="right">
+              <el-table-column label="单价" width="80" align="center">
                 <template #default="{ row }">
                   {{ formatAmount(row.unitPrice) }}
                 </template>
               </el-table-column>
-              <el-table-column label="小计" width="120" align="right">
+              <el-table-column label="小计" width="120" align="center">
                 <template #default="{ row }">
                   <span class="amount-text">{{ formatAmount(row.amount) }}</span>
                 </template>
