@@ -281,6 +281,35 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void stockInShouldThrowWhenAtomicTotalQuantityIncreaseFails() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-in-fail");
+        material.setName("Cotton");
+        material.setQuantity(12);
+        material.setLocations(new ArrayList<>());
+
+        User operator = new User();
+        operator.setId("warehouse-in-fail");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-in-fail");
+        request.setQuantity(5);
+        request.setReason("manual stock in");
+
+        when(rawMaterialRepository.findById("raw-stock-in-fail")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-stock-in-fail", 5, null)).thenReturn(false);
+
+        assertThatThrownBy(() -> inventoryService.stockIn(request, "warehouse-in-fail"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存更新失败");
+
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
+    }
+
+    @Test
     void stockOutShouldUseAtomicTotalQuantityDeductionForRawMaterialWithoutLocations() {
         RawMaterial material = new RawMaterial();
         material.setId("raw-stock-out");
@@ -307,6 +336,35 @@ class InventoryServiceImplTest {
 
         verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-stock-out", -5, 0);
         verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void stockOutShouldThrowWhenAtomicTotalQuantityDeductionFails() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-out-fail");
+        material.setName("Cotton");
+        material.setQuantity(12);
+        material.setLocations(new ArrayList<>());
+
+        User operator = new User();
+        operator.setId("warehouse-out-fail");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-out-fail");
+        request.setQuantity(5);
+        request.setReason("manual stock out");
+
+        when(rawMaterialRepository.findById("raw-stock-out-fail")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-stock-out-fail", -5, 0)).thenReturn(false);
+
+        assertThatThrownBy(() -> inventoryService.stockOut(request, "warehouse-out-fail"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存不足或已被其他操作更新");
+
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
     }
 
     @Test
@@ -356,6 +414,25 @@ class InventoryServiceImplTest {
 
         verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-fifo", -3, 0);
         verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void fifoDeductRawMaterialShouldThrowWhenAtomicTotalQuantityDeductionFails() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-fifo-fail");
+        material.setName("Cotton");
+        material.setQuantity(2);
+        material.setLocations(Collections.emptyList());
+
+        when(rawMaterialRepository.findById("raw-fifo-fail")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-fifo-fail", -3, 0)).thenReturn(false);
+
+        assertThatThrownBy(() -> inventoryService.fifoDeductRawMaterial("raw-fifo-fail", 3, "ship raw"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存不足或已被其他操作更新");
+
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
     }
 
     @Test
