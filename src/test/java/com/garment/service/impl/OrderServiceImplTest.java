@@ -1,6 +1,7 @@
 package com.garment.service.impl;
 
 import com.garment.dto.OrderCreateRequest;
+import com.garment.dto.OrderApproveRequest;
 import com.garment.dto.OrderItemDTO;
 import com.garment.dto.OrderVO;
 import com.garment.exception.BusinessException;
@@ -17,12 +18,14 @@ import com.garment.repository.OrderRepository;
 import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.InventoryService;
+import com.garment.service.support.MongoAtomicOpsService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.util.Arrays;
 import java.util.Date;
@@ -59,6 +62,9 @@ class OrderServiceImplTest {
 
     @Mock
     private InventoryService inventoryService;
+
+    @Mock
+    private MongoAtomicOpsService mongoAtomicOpsService;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -147,8 +153,8 @@ class OrderServiceImplTest {
         when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
         when(userRepository.findById("manager-1")).thenReturn(Optional.of(operator));
         when(orderItemRepository.findByOrderId("order-1")).thenReturn(Arrays.asList(shirt, coat));
+        when(mongoAtomicOpsService.transitionOrderStatus(any(), any(), any(), any())).thenReturn(true);
         when(salesRecordRepository.findByOrderId("order-1")).thenReturn(Optional.empty());
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(salesRecordRepository.save(any(SalesRecord.class))).thenAnswer(invocation -> {
             SalesRecord record = invocation.getArgument(0);
             record.setId("sales-1");
@@ -197,8 +203,8 @@ class OrderServiceImplTest {
         when(orderRepository.findById("order-2")).thenReturn(Optional.of(order));
         when(userRepository.findById("manager-2")).thenReturn(Optional.of(operator));
         when(orderItemRepository.findByOrderId("order-2")).thenReturn(Arrays.asList());
+        when(mongoAtomicOpsService.transitionOrderStatus(any(), any(), any(), any())).thenReturn(true);
         when(salesRecordRepository.findByOrderId("order-2")).thenReturn(Optional.of(existingRecord));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderVO result = orderService.completeOrder("order-2", "manager-2");
 
@@ -238,7 +244,7 @@ class OrderServiceImplTest {
         when(orderRepository.findById("order-ship-1")).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId("order-ship-1")).thenReturn(Arrays.asList(item));
         when(finishedProductRepository.findById("finished-1")).thenReturn(Optional.of(product));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mongoAtomicOpsService.transitionOrderStatus(any(), any(), any(), any())).thenReturn(true);
         when(userRepository.findById("warehouse-1")).thenReturn(Optional.of(operator));
 
         OrderVO result = orderService.shipOrder("order-ship-1", "warehouse-1");
@@ -246,7 +252,7 @@ class OrderServiceImplTest {
         assertThat(result.getStatus()).isEqualTo("SHIPPED");
         assertThat(result.getShipTime()).isNotNull();
         verify(inventoryService).fifoDeductFinishedProduct("finished-1", 3, "订单发货-ORD20260415001 | 商品:T-shirt-Y1/White/M");
-        verify(orderRepository).save(order);
+        verify(mongoAtomicOpsService).transitionOrderStatus(any(), any(), any(), any());
     }
 
     @Test
@@ -285,4 +291,98 @@ class OrderServiceImplTest {
         verify(orderRepository, never()).save(any(Order.class));
         verifyNoInteractions(inventoryService);
     }
+
+    @Test
+    void createOrderShouldUseAtomicOrderNumberGenerator() {
+        User creator = new User();
+        creator.setId("sales-atomic");
+        creator.setRealName("sales user");
+
+        OrderCreateRequest request = new OrderCreateRequest();
+        request.setCustomerId("customer-atomic");
+        request.setCustomerName("customer name");
+        request.setItems(Arrays.asList(OrderItemDTO.builder()
+                .productId("finished-atomic")
+                .productCode("N1")
+                .productName("shirt")
+                .quantity(1)
+                .unitPrice(88.0)
+                .build()));
+
+        when(userRepository.findById("sales-atomic")).thenReturn(Optional.of(creator));
+        when(mongoAtomicOpsService.nextOrderNo(any(Date.class))).thenReturn("ORD20260424001");
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setId("order-atomic");
+            return order;
+        });
+        when(orderItemRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderVO result = orderService.createOrder(request, "sales-atomic");
+
+        assertThat(result.getOrderNo()).isEqualTo("ORD20260424001");
+    }
+
+    @Test
+    void approveOrderShouldThrowWhenAtomicStatusTransitionFails() {
+        Order order = new Order();
+        order.setId("order-approve-atomic");
+        order.setStatus("PENDING_APPROVAL");
+
+        User approver = new User();
+        approver.setId("manager-atomic");
+        approver.setRealName("manager user");
+
+        OrderApproveRequest request = new OrderApproveRequest();
+        request.setApproved(true);
+        request.setRemark("ok");
+
+        when(orderRepository.findById("order-approve-atomic")).thenReturn(Optional.of(order));
+        when(userRepository.findById("manager-atomic")).thenReturn(Optional.of(approver));
+        when(mongoAtomicOpsService.transitionOrderStatus(any(), any(), any(), any())).thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.approveOrder("order-approve-atomic", request, "manager-atomic"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("璁㈠崟鐘舵€佸凡鍙樺寲");
+    }
+
+    @Test
+    void completeOrderShouldTreatDuplicateArchiveAsAlreadyArchived() {
+        Order order = new Order();
+        order.setId("order-duplicate-archive");
+        order.setOrderNo("ORD20260424002");
+        order.setCustomerId("customer-archive");
+        order.setCustomerName("customer name");
+        order.setStatus("SHIPPED");
+        order.setTotalAmount(88.0);
+        order.setCreateBy("sales-atomic");
+        order.setCreateByName("sales user");
+
+        OrderItem item = new OrderItem();
+        item.setOrderId("order-duplicate-archive");
+        item.setProductId("finished-atomic");
+        item.setProductCode("N1");
+        item.setProductName("shirt");
+        item.setQuantity(1);
+        item.setUnitPrice(88.0);
+        item.setAmount(88.0);
+
+        User operator = new User();
+        operator.setId("manager-archive");
+        operator.setRealName("manager user");
+
+        when(orderRepository.findById("order-duplicate-archive")).thenReturn(Optional.of(order));
+        when(userRepository.findById("manager-archive")).thenReturn(Optional.of(operator));
+        when(orderItemRepository.findByOrderId("order-duplicate-archive")).thenReturn(Arrays.asList(item));
+        when(mongoAtomicOpsService.transitionOrderStatus(any(), any(), any(), any())).thenReturn(true);
+        when(salesRecordRepository.findByOrderId("order-duplicate-archive")).thenReturn(Optional.empty());
+        when(salesRecordRepository.save(any(SalesRecord.class)))
+                .thenThrow(new DuplicateKeyException("duplicate archive"));
+
+        OrderVO result = orderService.completeOrder("order-duplicate-archive", "manager-archive");
+
+        assertThat(result.getStatus()).isEqualTo("COMPLETED");
+        verify(salesRecordRepository).save(any(SalesRecord.class));
+    }
 }
+

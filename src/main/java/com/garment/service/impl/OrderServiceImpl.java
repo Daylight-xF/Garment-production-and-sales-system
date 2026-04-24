@@ -16,13 +16,15 @@ import com.garment.repository.SalesRecordRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.InventoryService;
 import com.garment.service.OrderService;
+import com.garment.service.support.MongoAtomicOpsService;
+import org.bson.Document;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -40,6 +42,7 @@ public class OrderServiceImpl implements OrderService {
     private final SalesRecordRepository salesRecordRepository;
     private final FinishedProductRepository finishedProductRepository;
     private final InventoryService inventoryService;
+    private final MongoAtomicOpsService mongoAtomicOpsService;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OrderItemRepository orderItemRepository,
@@ -47,7 +50,8 @@ public class OrderServiceImpl implements OrderService {
                             UserRepository userRepository,
                             SalesRecordRepository salesRecordRepository,
                             FinishedProductRepository finishedProductRepository,
-                            InventoryService inventoryService) {
+                            InventoryService inventoryService,
+                            MongoAtomicOpsService mongoAtomicOpsService) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderLogRepository = orderLogRepository;
@@ -55,6 +59,7 @@ public class OrderServiceImpl implements OrderService {
         this.salesRecordRepository = salesRecordRepository;
         this.finishedProductRepository = finishedProductRepository;
         this.inventoryService = inventoryService;
+        this.mongoAtomicOpsService = mongoAtomicOpsService;
     }
 
     @Override
@@ -63,7 +68,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new BusinessException("用户不存在"));
 
         Order order = new Order();
-        order.setOrderNo(generateOrderNo());
+        order.setOrderNo(mongoAtomicOpsService.nextOrderNo(new Date()));
         order.setCustomerId(request.getCustomerId());
         order.setCustomerName(request.getCustomerName());
         order.setStatus("PENDING_APPROVAL");
@@ -190,20 +195,44 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new BusinessException("用户不存在"));
 
         if (Boolean.TRUE.equals(request.getApproved())) {
+            Date approveTime = new Date();
+            boolean changed = mongoAtomicOpsService.transitionOrderStatus(
+                    id,
+                    "PENDING_APPROVAL",
+                    "APPROVED",
+                    new Document("approveBy", userId)
+                            .append("approveByName", user.getRealName())
+                            .append("approveTime", approveTime)
+                            .append("approveRemark", request.getRemark())
+            );
+            if (!changed) {
+                throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+            }
             order.setStatus("APPROVED");
             order.setApproveBy(userId);
             order.setApproveByName(user.getRealName());
-            order.setApproveTime(new Date());
+            order.setApproveTime(approveTime);
             order.setApproveRemark(request.getRemark());
-            orderRepository.save(order);
             saveLog(id, userId, user.getRealName(), "APPROVE", "审核通过" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
         } else {
+            Date approveTime = new Date();
+            boolean changed = mongoAtomicOpsService.transitionOrderStatus(
+                    id,
+                    "PENDING_APPROVAL",
+                    "CANCELLED",
+                    new Document("approveBy", userId)
+                            .append("approveByName", user.getRealName())
+                            .append("approveTime", approveTime)
+                            .append("approveRemark", request.getRemark())
+            );
+            if (!changed) {
+                throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+            }
             order.setStatus("CANCELLED");
             order.setApproveBy(userId);
             order.setApproveByName(user.getRealName());
-            order.setApproveTime(new Date());
+            order.setApproveTime(approveTime);
             order.setApproveRemark(request.getRemark());
-            orderRepository.save(order);
             saveLog(id, userId, user.getRealName(), "REJECT", "审核拒绝" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
         }
 
@@ -246,9 +275,18 @@ public class OrderServiceImpl implements OrderService {
             );
         }
 
+        Date shipTime = new Date();
+        boolean shipped = mongoAtomicOpsService.transitionOrderStatus(
+                id,
+                "APPROVED",
+                "SHIPPED",
+                new Document("shipTime", shipTime)
+        );
+        if (!shipped) {
+            throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+        }
         order.setStatus("SHIPPED");
-        order.setShipTime(new Date());
-        orderRepository.save(order);
+        order.setShipTime(shipTime);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
@@ -266,9 +304,18 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("仅已发货的订单可完成");
         }
 
+        Date completeTime = new Date();
+        boolean completed = mongoAtomicOpsService.transitionOrderStatus(
+                id,
+                "SHIPPED",
+                "COMPLETED",
+                new Document("completeTime", completeTime)
+        );
+        if (!completed) {
+            throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+        }
         order.setStatus("COMPLETED");
-        order.setCompleteTime(new Date());
-        orderRepository.save(order);
+        order.setCompleteTime(completeTime);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
@@ -277,14 +324,6 @@ public class OrderServiceImpl implements OrderService {
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
         archiveCompletedOrder(order, items);
         return convertToVO(order, items, null);
-    }
-
-    private String generateOrderNo() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
-        String dateStr = sdf.format(new Date());
-        String prefix = "ORD" + dateStr;
-        long count = orderRepository.countByOrderNoStartingWith(prefix);
-        return prefix + String.format("%03d", count + 1);
     }
 
     private void saveLog(String orderId, String operatorId, String operatorName, String action, String remark) {
@@ -356,7 +395,11 @@ public class OrderServiceImpl implements OrderService {
                     .collect(Collectors.joining("、")));
         }
 
-        salesRecordRepository.save(salesRecord);
+        try {
+            salesRecordRepository.save(salesRecord);
+        } catch (DuplicateKeyException ex) {
+            // Another request archived the order first; treat that as success.
+        }
     }
 
     private OrderVO convertToVO(Order order, List<OrderItem> items, List<OrderLog> logs) {
