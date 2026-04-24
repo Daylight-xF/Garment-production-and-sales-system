@@ -355,6 +355,40 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void shipOrderShouldThrowWhenAtomicTransitionFails() {
+        Order order = new Order();
+        order.setId("order-ship-conflict");
+        order.setOrderNo("ORD20260415004");
+        order.setStatus("APPROVED");
+
+        OrderItem item = new OrderItem();
+        item.setOrderId("order-ship-conflict");
+        item.setProductId("finished-conflict");
+        item.setProductCode("CF1");
+        item.setProductName("Polo");
+        item.setColor("Blue");
+        item.setSize("L");
+        item.setQuantity(1);
+
+        FinishedProduct product = new FinishedProduct();
+        product.setId("finished-conflict");
+        product.setQuantity(10);
+        product.setLocations(Collections.emptyList());
+
+        when(orderRepository.findById("order-ship-conflict")).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId("order-ship-conflict")).thenReturn(Arrays.asList(item));
+        when(finishedProductRepository.findById("finished-conflict")).thenReturn(Optional.of(product));
+        when(mongoAtomicOpsService.transitionOrderStatus(eq("order-ship-conflict"), eq("APPROVED"), eq("SHIPPED"), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.shipOrder("order-ship-conflict", "warehouse-conflict"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("订单状态已变更，请刷新后再操作");
+
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
     void completeOrderShouldSetCompleteTimeAndCreateOrderLevelSalesRecord() {
         Order before = new Order();
         before.setId("order-1");
@@ -447,6 +481,24 @@ class OrderServiceImplTest {
                 .containsExactly("蓝色", "黑色");
         assertThat(savedRecord.getItems()).extracting(SalesRecord.SalesRecordItem::getSize)
                 .containsExactly("L", "XL");
+    }
+
+    @Test
+    void completeOrderShouldThrowWhenAtomicTransitionFails() {
+        Order order = new Order();
+        order.setId("order-complete-conflict");
+        order.setStatus("SHIPPED");
+
+        when(orderRepository.findById("order-complete-conflict")).thenReturn(Optional.of(order));
+        when(mongoAtomicOpsService.transitionOrderStatus(eq("order-complete-conflict"), eq("SHIPPED"), eq("COMPLETED"), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.completeOrder("order-complete-conflict", "manager-conflict"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("订单状态已变更，请刷新后再操作");
+
+        verify(orderItemRepository, never()).findByOrderId("order-complete-conflict");
+        verify(salesRecordRepository, never()).save(any(SalesRecord.class));
     }
 
     @Test
