@@ -3,6 +3,7 @@
 .m2repo/
 target/
 bug/
+.worktrees/
 
 
 # IDE
