@@ -206,14 +206,10 @@ public class OrderServiceImpl implements OrderService {
                             .append("approveRemark", request.getRemark())
             );
             if (!changed) {
-                throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+                throw new BusinessException("订单状态已变更，请刷新后再操作");
             }
-            order.setStatus("APPROVED");
-            order.setApproveBy(userId);
-            order.setApproveByName(user.getRealName());
-            order.setApproveTime(approveTime);
-            order.setApproveRemark(request.getRemark());
-            saveLog(id, userId, user.getRealName(), "APPROVE", "审核通过" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
+            saveLog(id, userId, user.getRealName(), "APPROVE",
+                    "审核通过" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
         } else {
             Date approveTime = new Date();
             boolean changed = mongoAtomicOpsService.transitionOrderStatus(
@@ -226,18 +222,16 @@ public class OrderServiceImpl implements OrderService {
                             .append("approveRemark", request.getRemark())
             );
             if (!changed) {
-                throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+                throw new BusinessException("订单状态已变更，请刷新后再操作");
             }
-            order.setStatus("CANCELLED");
-            order.setApproveBy(userId);
-            order.setApproveByName(user.getRealName());
-            order.setApproveTime(approveTime);
-            order.setApproveRemark(request.getRemark());
-            saveLog(id, userId, user.getRealName(), "REJECT", "审核拒绝" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
+            saveLog(id, userId, user.getRealName(), "REJECT",
+                    "审核拒绝" + (StringUtils.hasText(request.getRemark()) ? "：" + request.getRemark() : ""));
         }
 
+        Order latestOrder = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("订单不存在"));
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
-        return convertToVO(order, items, null);
+        return convertToVO(latestOrder, items, null);
     }
 
     @Override
@@ -264,17 +258,6 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("订单发货失败，以下商品库存不足：" + String.join("；", insufficientItems));
         }
 
-        for (ShippingDeductionPlan plan : deductionPlans) {
-            if (plan.requiredQuantity <= 0) {
-                continue;
-            }
-            inventoryService.fifoDeductFinishedProduct(
-                    plan.product.getId(),
-                    plan.requiredQuantity,
-                    "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
-            );
-        }
-
         Date shipTime = new Date();
         boolean shipped = mongoAtomicOpsService.transitionOrderStatus(
                 id,
@@ -283,16 +266,42 @@ public class OrderServiceImpl implements OrderService {
                 new Document("shipTime", shipTime)
         );
         if (!shipped) {
-            throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+            throw new BusinessException("订单状态已变更，请刷新后再操作");
         }
-        order.setStatus("SHIPPED");
-        order.setShipTime(shipTime);
+
+        try {
+            for (ShippingDeductionPlan plan : deductionPlans) {
+                if (plan.requiredQuantity <= 0) {
+                    continue;
+                }
+                inventoryService.fifoDeductFinishedProduct(
+                        plan.product.getId(),
+                        plan.requiredQuantity,
+                        "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
+                );
+            }
+        } catch (RuntimeException ex) {
+            try {
+                mongoAtomicOpsService.transitionOrderStatus(
+                        id,
+                        "SHIPPED",
+                        "APPROVED",
+                        new Document("shipTime", null)
+                );
+            } catch (RuntimeException ignored) {
+                // Best-effort rollback only.
+            }
+            throw ex;
+        }
+
+        Order latestOrder = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("订单不存在"));
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
         saveLog(id, userId, user.getRealName(), "SHIP", "订单发货");
 
-        return convertToVO(order, items, null);
+        return convertToVO(latestOrder, items, null);
     }
 
     @Override
@@ -312,18 +321,19 @@ public class OrderServiceImpl implements OrderService {
                 new Document("completeTime", completeTime)
         );
         if (!completed) {
-            throw new BusinessException("璁㈠崟鐘舵€佸凡鍙樺寲锛岃鍒锋柊鍚庡啀鎿嶄綔");
+            throw new BusinessException("订单状态已变更，请刷新后再操作");
         }
-        order.setStatus("COMPLETED");
-        order.setCompleteTime(completeTime);
+
+        Order latestOrder = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("订单不存在"));
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
         saveLog(id, userId, user.getRealName(), "COMPLETE", "订单完成");
 
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
-        archiveCompletedOrder(order, items);
-        return convertToVO(order, items, null);
+        archiveCompletedOrder(latestOrder, items);
+        return convertToVO(latestOrder, items, null);
     }
 
     private void saveLog(String orderId, String operatorId, String operatorName, String action, String remark) {
