@@ -14,6 +14,7 @@ import com.garment.service.ProductionTaskService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -203,7 +204,11 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
         ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
         if (plan != null) {
             plan.setCompletedQuantity(totalCompleted);
-            productionPlanRepository.save(plan);
+            try {
+                productionPlanRepository.save(plan);
+            } catch (OptimisticLockingFailureException ex) {
+                throw new BusinessException("生产计划汇总已更新，请刷新后重试");
+            }
         }
     }
 

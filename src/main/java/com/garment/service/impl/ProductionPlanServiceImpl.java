@@ -18,6 +18,9 @@ import com.garment.repository.RawMaterialRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.InventoryService;
 import com.garment.service.ProductionPlanService;
+import com.garment.service.support.MongoAtomicOpsService;
+import org.bson.Document;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -38,19 +41,22 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     private final ProductionTaskRepository productionTaskRepository;
     private final RawMaterialRepository rawMaterialRepository;
     private final InventoryService inventoryService;
+    private final MongoAtomicOpsService mongoAtomicOpsService;
 
     public ProductionPlanServiceImpl(ProductionPlanRepository productionPlanRepository,
                                       UserRepository userRepository,
                                       ProductDefinitionRepository productDefinitionRepository,
                                       ProductionTaskRepository productionTaskRepository,
                                       RawMaterialRepository rawMaterialRepository,
-                                      InventoryService inventoryService) {
+                                      InventoryService inventoryService,
+                                      MongoAtomicOpsService mongoAtomicOpsService) {
         this.productionPlanRepository = productionPlanRepository;
         this.userRepository = userRepository;
         this.productDefinitionRepository = productDefinitionRepository;
         this.productionTaskRepository = productionTaskRepository;
         this.rawMaterialRepository = rawMaterialRepository;
         this.inventoryService = inventoryService;
+        this.mongoAtomicOpsService = mongoAtomicOpsService;
     }
 
     @Override
@@ -366,6 +372,12 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
     }
 
+    private void assertPlanStatusChanged(boolean changed) {
+        if (!changed) {
+            throw new BusinessException("计划状态已变更，请刷新后再操作");
+        }
+    }
+
     @Override
     public PlanVO approvePlan(String id, String status) {
         ProductionPlan plan = productionPlanRepository.findById(id)
@@ -379,13 +391,14 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
         }
 
+        assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(id, "PENDING", status, null));
+
         if ("CANCELLED".equals(status)) {
             restoreRawMaterials(id, plan.getBatchNo());
         }
 
-        plan.setStatus(status);
-        ProductionPlan saved = productionPlanRepository.save(plan);
-        return convertToVO(saved);
+        return convertToVO(productionPlanRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("生产计划不存在")));
     }
 
     @Override
@@ -416,13 +429,17 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         task.setCompletedQuantity(0);
         task.setDescription("自动从生产计划【" + plan.getBatchNo() + "】生成");
         task.setCreateBy(userId);
+        task.setAutoCreateKey("AUTO:" + plan.getId());
 
-        productionTaskRepository.save(task);
+        assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(planId, "APPROVED", "IN_PROGRESS", null));
+        try {
+            productionTaskRepository.save(task);
+        } catch (DuplicateKeyException ignored) {
+            // The auto-create key prevents duplicate task creation under races.
+        }
 
-        plan.setStatus("IN_PROGRESS");
-        ProductionPlan savedPlan = productionPlanRepository.save(plan);
-
-        return convertToVO(savedPlan);
+        return convertToVO(productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new BusinessException("生产计划不存在")));
     }
 
     @Override
@@ -446,16 +463,18 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             long completedCount = tasks.stream()
                     .filter(t -> "COMPLETED".equals(t.getStatus()))
                     .count();
-            throw new BusinessException(
-                    "还有" + (tasks.size() - completedCount) + "个任务未完成，无法确认完成"
-            );
+            throw new BusinessException("还有" + (tasks.size() - completedCount) + "个任务未完成，无法确认完成");
         }
 
-        plan.setStatus("COMPLETED");
-        plan.setCompletedQuantity(plan.getQuantity());
-        ProductionPlan savedPlan = productionPlanRepository.save(plan);
+        assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(
+                planId,
+                "IN_PROGRESS",
+                "COMPLETED",
+                new Document("completedQuantity", plan.getQuantity())
+        ));
 
-        return convertToVO(savedPlan);
+        return convertToVO(productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new BusinessException("生产计划不存在")));
     }
 
     @Override
