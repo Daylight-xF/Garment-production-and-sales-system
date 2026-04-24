@@ -17,6 +17,7 @@ import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
 import com.garment.repository.RawMaterialRepository;
 import com.garment.repository.UserRepository;
+import com.garment.service.support.MongoAtomicOpsService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -63,6 +64,9 @@ class InventoryServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private MongoAtomicOpsService mongoAtomicOpsService;
 
     @InjectMocks
     private InventoryServiceImpl inventoryService;
@@ -248,6 +252,64 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void stockInShouldUseAtomicTotalQuantityIncreaseForRawMaterialWithoutLocations() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-in");
+        material.setName("Cotton");
+        material.setQuantity(12);
+        material.setLocations(new ArrayList<>());
+
+        User operator = new User();
+        operator.setId("warehouse-in");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-in");
+        request.setQuantity(5);
+        request.setReason("manual stock in");
+
+        when(rawMaterialRepository.findById("raw-stock-in")).thenReturn(Optional.of(material));
+        when(userRepository.findById("warehouse-in")).thenReturn(Optional.of(operator));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-stock-in", 5, null)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockIn(request, "warehouse-in");
+
+        verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-stock-in", 5, null);
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void stockOutShouldUseAtomicTotalQuantityDeductionForRawMaterialWithoutLocations() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-out");
+        material.setName("Cotton");
+        material.setQuantity(12);
+        material.setLocations(new ArrayList<>());
+
+        User operator = new User();
+        operator.setId("warehouse-out");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-out");
+        request.setQuantity(5);
+        request.setReason("manual stock out");
+
+        when(rawMaterialRepository.findById("raw-stock-out")).thenReturn(Optional.of(material));
+        when(userRepository.findById("warehouse-out")).thenReturn(Optional.of(operator));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-stock-out", -5, 0)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockOut(request, "warehouse-out");
+
+        verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-stock-out", -5, 0);
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
     void fifoDeductFinishedProductShouldConsumeOldestLocationsFirst() {
         FinishedProduct product = buildFinishedProduct("finished-30", "BATCH-030", "T-shirt", "Y1", "white", "M");
         product.setAlertThreshold(1);
@@ -276,6 +338,41 @@ class InventoryServiceImplTest {
         verify(inventoryRecordRepository).save(recordCaptor.capture());
         assertThat(recordCaptor.getValue().getReason()).contains("订单发货-ORD001");
         assertThat(recordCaptor.getValue().getReason()).contains("FIFO:A-01(2)B-01(1)");
+    }
+
+    @Test
+    void fifoDeductRawMaterialShouldUseAtomicTotalQuantityDeductionWithoutLocations() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-fifo");
+        material.setName("Cotton");
+        material.setQuantity(8);
+        material.setLocations(Collections.emptyList());
+
+        when(rawMaterialRepository.findById("raw-fifo")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-fifo", -3, 0)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.fifoDeductRawMaterial("raw-fifo", 3, "ship raw");
+
+        verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-fifo", -3, 0);
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void fifoDeductFinishedProductShouldFailWhenAtomicTotalQuantityDeductionMisses() {
+        FinishedProduct product = buildFinishedProduct("finished-atomic-miss", "BATCH-032", "Hoodie", "W1", "black", "XL");
+        product.setQuantity(2);
+        product.setLocations(Collections.emptyList());
+
+        when(finishedProductRepository.findById("finished-atomic-miss")).thenReturn(Optional.of(product));
+        when(mongoAtomicOpsService.changeFinishedProductQuantity("finished-atomic-miss", -3, 0)).thenReturn(false);
+
+        assertThatThrownBy(() -> inventoryService.fifoDeductFinishedProduct("finished-atomic-miss", 3, "ship"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存不足或已被其他操作更新");
+
+        verify(finishedProductRepository, never()).save(any(FinishedProduct.class));
+        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
     }
 
     @Test

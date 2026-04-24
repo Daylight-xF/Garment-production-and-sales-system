@@ -5,6 +5,7 @@ import com.garment.exception.BusinessException;
 import com.garment.model.*;
 import com.garment.repository.*;
 import com.garment.service.InventoryService;
+import com.garment.service.support.MongoAtomicOpsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -30,6 +31,7 @@ public class InventoryServiceImpl implements InventoryService {
     private final InventoryRecordRepository inventoryRecordRepository;
     private final InventoryAlertRepository inventoryAlertRepository;
     private final UserRepository userRepository;
+    private final MongoAtomicOpsService mongoAtomicOpsService;
 
     public InventoryServiceImpl(RawMaterialRepository rawMaterialRepository,
                                  FinishedProductRepository finishedProductRepository,
@@ -37,7 +39,8 @@ public class InventoryServiceImpl implements InventoryService {
                                  ProductionPlanRepository productionPlanRepository,
                                  InventoryRecordRepository inventoryRecordRepository,
                                  InventoryAlertRepository inventoryAlertRepository,
-                                 UserRepository userRepository) {
+                                 UserRepository userRepository,
+                                 MongoAtomicOpsService mongoAtomicOpsService) {
         this.rawMaterialRepository = rawMaterialRepository;
         this.finishedProductRepository = finishedProductRepository;
         this.productDefinitionRepository = productDefinitionRepository;
@@ -45,6 +48,7 @@ public class InventoryServiceImpl implements InventoryService {
         this.inventoryRecordRepository = inventoryRecordRepository;
         this.inventoryAlertRepository = inventoryAlertRepository;
         this.userRepository = userRepository;
+        this.mongoAtomicOpsService = mongoAtomicOpsService;
     }
 
     @Override
@@ -267,11 +271,17 @@ public class InventoryServiceImpl implements InventoryService {
                     log.info("更新原材料存放位置: {} 数量: {}", location, request.getQuantity());
                 }
             } else {
-                material.setQuantity(material.getQuantity() + request.getQuantity());
+                boolean increased = mongoAtomicOpsService.changeRawMaterialQuantity(request.getItemId(), request.getQuantity(), null);
+                if (!increased) {
+                    throw new BusinessException("库存更新失败，请刷新后重试");
+                }
+                material.setQuantity((material.getQuantity() != null ? material.getQuantity() : 0) + request.getQuantity());
             }
 
-            recalculateRawMaterialQuantity(material);
-            rawMaterialRepository.save(material);
+            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+                recalculateRawMaterialQuantity(material);
+                rawMaterialRepository.save(material);
+            }
             itemName = material.getName();
             log.info("原材料入库成功 - 名称: {}, 新库存: {}", itemName, material.getQuantity());
         } else if ("FINISHED_PRODUCT".equals(request.getItemType())) {
@@ -373,11 +383,17 @@ public class InventoryServiceImpl implements InventoryService {
                 if (material.getQuantity() < request.getQuantity()) {
                     throw new BusinessException("库存不足，当前库存：" + material.getQuantity());
                 }
+                boolean deducted = mongoAtomicOpsService.changeRawMaterialQuantity(request.getItemId(), -request.getQuantity(), 0);
+                if (!deducted) {
+                    throw new BusinessException("库存不足或已被其他操作更新，请刷新后重试");
+                }
                 material.setQuantity(material.getQuantity() - request.getQuantity());
             }
 
-            recalculateRawMaterialQuantity(material);
-            rawMaterialRepository.save(material);
+            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+                recalculateRawMaterialQuantity(material);
+                rawMaterialRepository.save(material);
+            }
             itemName = material.getName();
 
             if (material.getAlertThreshold() != null && material.getQuantity() <= material.getAlertThreshold()) {
@@ -941,6 +957,33 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public void fifoDeductRawMaterial(String materialId, int quantity, String reason) {
+        RawMaterial totalOnlyMaterial = rawMaterialRepository.findById(materialId)
+                .orElseThrow(() -> new BusinessException("原材料不存在"));
+        if (totalOnlyMaterial.getLocations() == null || totalOnlyMaterial.getLocations().isEmpty()) {
+            boolean deducted = mongoAtomicOpsService.changeRawMaterialQuantity(materialId, -quantity, 0);
+            if (!deducted) {
+                throw new BusinessException("库存不足或已被其他操作更新，请刷新后重试");
+            }
+            totalOnlyMaterial.setQuantity((totalOnlyMaterial.getQuantity() != null ? totalOnlyMaterial.getQuantity() : 0) - quantity);
+
+            InventoryRecord record = new InventoryRecord();
+            record.setInventoryType("OUT");
+            record.setItemType("RAW_MATERIAL");
+            record.setItemId(materialId);
+            record.setItemName(totalOnlyMaterial.getName());
+            record.setQuantity(-quantity);
+            record.setOperator("SYSTEM");
+            record.setOperatorName("SYSTEM");
+            record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
+            inventoryRecordRepository.save(record);
+
+            if (totalOnlyMaterial.getAlertThreshold() != null
+                    && totalOnlyMaterial.getQuantity() <= totalOnlyMaterial.getAlertThreshold()) {
+                createAlertIfNeeded("RAW_MATERIAL", totalOnlyMaterial.getId(), totalOnlyMaterial.getName(),
+                        totalOnlyMaterial.getQuantity(), totalOnlyMaterial.getAlertThreshold());
+            }
+            return;
+        }
         log.info("FIFO扣减原材料 - ID: {}, 扣减数量: {}, 原因: {}", materialId, quantity, reason);
 
         RawMaterial material = rawMaterialRepository.findById(materialId)
@@ -1008,6 +1051,34 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public void fifoDeductFinishedProduct(String finishedProductId, int quantity, String reason) {
+        FinishedProduct totalOnlyProduct = finishedProductRepository.findById(finishedProductId)
+                .orElseThrow(() -> new BusinessException("成品不存在"));
+        if (totalOnlyProduct.getLocations() == null || totalOnlyProduct.getLocations().isEmpty()) {
+            boolean deducted = mongoAtomicOpsService.changeFinishedProductQuantity(finishedProductId, -quantity, 0);
+            if (!deducted) {
+                throw new BusinessException("库存不足或已被其他操作更新，请刷新后重试");
+            }
+            int available = totalOnlyProduct.getQuantity() != null ? totalOnlyProduct.getQuantity() : 0;
+            totalOnlyProduct.setQuantity(available - quantity);
+
+            InventoryRecord record = new InventoryRecord();
+            record.setInventoryType("OUT");
+            record.setItemType("FINISHED_PRODUCT");
+            record.setItemId(finishedProductId);
+            record.setItemName(totalOnlyProduct.getName());
+            record.setQuantity(-quantity);
+            record.setOperator("SYSTEM");
+            record.setOperatorName("SYSTEM");
+            record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
+            inventoryRecordRepository.save(record);
+
+            if (totalOnlyProduct.getAlertThreshold() != null
+                    && totalOnlyProduct.getQuantity() <= totalOnlyProduct.getAlertThreshold()) {
+                createAlertIfNeeded("FINISHED_PRODUCT", totalOnlyProduct.getId(), totalOnlyProduct.getName(),
+                        totalOnlyProduct.getQuantity(), totalOnlyProduct.getAlertThreshold());
+            }
+            return;
+        }
         log.info("FIFO扣减成品 - ID: {}, 扣减数量: {}, 原因: {}", finishedProductId, quantity, reason);
 
         FinishedProduct product = finishedProductRepository.findById(finishedProductId)
