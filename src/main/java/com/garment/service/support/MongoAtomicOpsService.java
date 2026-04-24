@@ -13,11 +13,24 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
 public class MongoAtomicOpsService {
+
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter ORDER_NO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final Set<String> RESERVED_STATUS_FIELDS = new HashSet<>(Arrays.asList(
+            "status",
+            "updateTime",
+            "version"
+    ));
 
     private final MongoTemplate mongoTemplate;
 
@@ -26,7 +39,9 @@ public class MongoAtomicOpsService {
     }
 
     public String nextOrderNo(Date now) {
-        String prefix = "ORD" + new SimpleDateFormat("yyyyMMdd").format(now);
+        String prefix = "ORD" + ORDER_NO_DATE_FORMATTER.format(
+                Instant.ofEpochMilli(now.getTime()).atZone(BUSINESS_ZONE)
+        );
         Query query = Query.query(Criteria.where("_id").is(prefix));
         Update update = new Update().inc("seq", 1L).currentDate("updateTime");
         CounterSequence sequence = mongoTemplate.findAndModify(
@@ -80,7 +95,11 @@ public class MongoAtomicOpsService {
         Query query = Query.query(Criteria.where("_id").is(id).and("status").is(expectedStatus));
         Update update = new Update().set("status", nextStatus).currentDate("updateTime");
         if (extraFields != null) {
-            extraFields.forEach(update::set);
+            extraFields.forEach((key, value) -> {
+                if (!RESERVED_STATUS_FIELDS.contains(key)) {
+                    update.set(key, value);
+                }
+            });
         }
         return mongoTemplate.findAndModify(
                 query,
