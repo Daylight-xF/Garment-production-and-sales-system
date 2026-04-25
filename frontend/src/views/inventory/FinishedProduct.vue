@@ -137,8 +137,32 @@
         :rules="productFormRules"
         label-width="80px"
       >
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="productForm.name" placeholder="请输入名称" />
+        <el-form-item label="批次号" prop="batchNo">
+          <el-input v-model="productForm.batchNo" placeholder="请输入批次号" />
+        </el-form-item>
+        <el-form-item label="名称" :prop="dialogType === 'add' ? 'productDefinitionId' : 'name'">
+          <el-select
+            v-if="dialogType === 'add'"
+            v-model="productForm.productDefinitionId"
+            filterable
+            clearable
+            :placeholder="productDefinitionPlaceholder"
+            style="width: 100%"
+            @change="handleProductDefinitionChange"
+          >
+            <el-option
+              v-for="item in productDefinitionList"
+              :key="item.id"
+              :label="formatFinishedProductDefinitionLabel(item)"
+              :value="item.id"
+            />
+          </el-select>
+          <el-input
+            v-else
+            :model-value="editProductDisplayName"
+            placeholder="请输入名称"
+            disabled
+          />
         </el-form-item>
         <el-form-item label="类别" prop="category">
           <el-select v-model="productForm.category" placeholder="请选择类别" style="width: 100%">
@@ -353,6 +377,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Switch, Rank, Close } from '@element-plus/icons-vue'
 import { useUserStore } from '../../store/user'
+import { getProductDefinitionList } from '../../api/productDefinition'
 import {
   getFinishedProductList,
   createFinishedProduct,
@@ -363,11 +388,18 @@ import {
   stockOut,
   moveFinishedProductLocation
 } from '../../api/inventory'
+import {
+  applyProductDefinitionToFinishedProductForm,
+  buildFinishedProductPayload,
+  formatFinishedProductDefinitionLabel,
+  getFinishedProductFormDisplayName
+} from '../../utils/finishedProductDefinition'
 
 const userStore = useUserStore()
 const loading = ref(false)
 const submitLoading = ref(false)
 const productList = ref([])
+const productDefinitionList = ref([])
 const addDialogVisible = ref(false)
 const stockDialogVisible = ref(false)
 const thresholdDialogVisible = ref(false)
@@ -377,6 +409,7 @@ const currentItemId = ref(null)
 const productFormRef = ref(null)
 const stockFormRef = ref(null)
 const thresholdFormRef = ref(null)
+const productDefinitionPlaceholder = '\u8bf7\u9009\u62e9\u4ea7\u54c1\u5b9a\u4e49'
 
 const currentItem = reactive({
   name: '',
@@ -396,7 +429,10 @@ const pagination = reactive({
 })
 
 const productForm = reactive({
+  productDefinitionId: '',
+  batchNo: '',
   name: '',
+  productCode: '',
   category: '',
   color: '',
   size: '',
@@ -435,6 +471,8 @@ const thresholdForm = reactive({
   alertThreshold: 0
 })
 
+const editProductDisplayName = computed(() => getFinishedProductFormDisplayName(productForm))
+
 const canCreateOrEditProduct = computed(() => userStore.hasPermission('INVENTORY_IN'))
 const canStockIn = computed(() => userStore.hasPermission('INVENTORY_IN'))
 const canStockOut = computed(() => userStore.hasPermission('INVENTORY_OUT'))
@@ -464,8 +502,13 @@ const availableTargetLocations = computed(() => {
 })
 
 const productFormRules = {
+  batchNo: [{ required: true, message: '请输入批次号', trigger: 'blur' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
 }
+
+productFormRules.productDefinitionId = [
+  { required: true, message: '\u8bf7\u9009\u62e9\u4ea7\u54c1\u5b9a\u4e49', trigger: 'change' }
+]
 
 const stockFormRules = {
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
@@ -478,6 +521,7 @@ const thresholdFormRules = {
 }
 
 onMounted(() => {
+  fetchProductDefinitions()
   fetchList()
 })
 
@@ -498,6 +542,16 @@ async function fetchList() {
     ElMessage.error('获取成品列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchProductDefinitions() {
+  try {
+    const res = await getProductDefinitionList({ size: 1000, status: '\u542f\u7528' })
+    const data = res.data || res
+    productDefinitionList.value = data.list || []
+  } catch (error) {
+    console.error('failed to fetch product definitions', error)
   }
 }
 
@@ -532,8 +586,12 @@ function formatCurrency(value) {
 
 function handleAdd() {
   dialogType.value = 'add'
+  fetchProductDefinitions()
   Object.assign(productForm, {
+    productDefinitionId: '',
+    batchNo: '',
     name: '',
+    productCode: '',
     category: '',
     color: '',
     size: '',
@@ -551,7 +609,10 @@ function handleEdit(row) {
   dialogType.value = 'edit'
   currentItemId.value = row.id
   Object.assign(productForm, {
+    productDefinitionId: '',
+    batchNo: row.batchNo || '',
     name: row.name,
+    productCode: row.productCode || '',
     category: row.category,
     color: row.color || '',
     size: row.size || '',
@@ -563,6 +624,11 @@ function handleEdit(row) {
   addDialogVisible.value = true
 }
 
+function handleProductDefinitionChange(productDefinitionId) {
+  const definition = productDefinitionList.value.find(item => item.id === productDefinitionId)
+  Object.assign(productForm, applyProductDefinitionToFinishedProductForm(productForm, definition))
+}
+
 async function handleSubmit() {
   const form = productFormRef.value
   if (!form) return
@@ -570,11 +636,12 @@ async function handleSubmit() {
     if (!valid) return
     submitLoading.value = true
     try {
+      const payload = buildFinishedProductPayload(productForm)
       if (dialogType.value === 'add') {
-        await createFinishedProduct(productForm)
+        await createFinishedProduct(payload)
         ElMessage.success('新增成品成功')
       } else {
-        await updateFinishedProduct(currentItemId.value, productForm)
+        await updateFinishedProduct(currentItemId.value, payload)
         ElMessage.success('编辑成品成功')
       }
       addDialogVisible.value = false

@@ -5,7 +5,11 @@ import lombok.Data;
 @Data
 public class FinishedProductUpdateRequest {
 
+    private String batchNo;
+
     private String name;
+
+    private String productCode;
 
     private String category;
 
