@@ -7,7 +7,6 @@ import com.garment.repository.*;
 import com.garment.service.InventoryService;
 import com.garment.service.support.MongoAtomicOpsService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -15,30 +14,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @Transactional
 public class InventoryServiceImpl implements InventoryService {
-
-    private static final int LOCATION_CONFLICT_RETRY_LIMIT = 2;
-    private static final String INVENTORY_CONFLICT_MESSAGE = "库存已被其他操作更新，请刷新后重试";
-    private static final Comparator<LocationInfo> LOCATION_CREATED_AT_COMPARATOR =
-            Comparator.comparingLong(location ->
-                    location.getCreatedAt() != null ? location.getCreatedAt().getTime() : 0L);
-    // 兼容历史上被错误按 Latin-1 解码的“位置:”标记。
-    private static final String LEGACY_LOCATION_MARKER =
-            new String("位置:".getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1);
 
     private final RawMaterialRepository rawMaterialRepository;
     private final FinishedProductRepository finishedProductRepository;
@@ -48,12 +32,6 @@ public class InventoryServiceImpl implements InventoryService {
     private final InventoryAlertRepository inventoryAlertRepository;
     private final UserRepository userRepository;
     private final MongoAtomicOpsService mongoAtomicOpsService;
-
-    private static final String SYSTEM_OPERATOR = "SYSTEM";
-    private static final String SYSTEM_OPERATOR_NAME = "系统自动";
-    private static final String LOCATION_INSUFFICIENT_MESSAGE_TEMPLATE = "位置 %s 库存不足，当前可用 %d，请求出库 %d";
-    private static final String FIFO_LOCATION_INSUFFICIENT_MESSAGE_TEMPLATE =
-            "FIFO扣减失败：位置总库存不足，需扣减 %d，实际可扣减 %d";
 
     public InventoryServiceImpl(RawMaterialRepository rawMaterialRepository,
                                  FinishedProductRepository finishedProductRepository,
@@ -146,25 +124,23 @@ public class InventoryServiceImpl implements InventoryService {
         }
         if (StringUtils.hasText(request.getLocation())) {
             List<LocationInfo> locations = material.getLocations();
-            if (locations == null || locations.isEmpty()) {
+            if (locations == null) {
                 locations = new ArrayList<>();
+            }
+            LocationInfo existing = locations.stream()
+                    .filter(l -> request.getLocation().equals(l.getLocation()))
+                    .findFirst()
+                    .orElse(null);
+            if (existing != null) {
+                existing.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
+            } else {
                 LocationInfo info = new LocationInfo();
                 info.setLocation(request.getLocation());
                 info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
                 info.setCreatedAt(new Date());
                 locations.add(info);
-                material.setLocations(locations);
-            } else if (locations.size() == 1) {
-                LocationInfo existing = locations.get(0);
-                existing.setLocation(request.getLocation());
-                if (existing.getQuantity() == null) {
-                    existing.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
-                }
-            } else {
-                // Ignore the legacy single-location field once inventory has multiple location buckets.
-                log.debug("忽略原材料多库位更新中的遗留 location 字段 - ID: {}, location: {}",
-                        material.getId(), request.getLocation());
             }
+            material.setLocations(locations);
         }
         if (request.getSupplier() != null) {
             material.setSupplier(request.getSupplier());
@@ -176,7 +152,7 @@ public class InventoryServiceImpl implements InventoryService {
             material.setDescription(request.getDescription());
         }
 
-        RawMaterial saved = saveExistingRawMaterial(material);
+        RawMaterial saved = rawMaterialRepository.save(material);
         return convertToRawMaterialVO(saved);
     }
 
@@ -219,29 +195,18 @@ public class InventoryServiceImpl implements InventoryService {
     @Override
     public FinishedProductVO createFinishedProduct(FinishedProductCreateRequest request) {
         FinishedProduct product = new FinishedProduct();
-        product.setBatchNo(request.getBatchNo());
         product.setName(request.getName());
-        product.setProductCode(request.getProductCode());
         product.setCategory(request.getCategory());
         product.setColor(request.getColor());
         product.setSize(request.getSize());
         product.setUnit(request.getUnit());
         product.setQuantity(request.getQuantity() != null ? request.getQuantity() : 0);
-        if (StringUtils.hasText(request.getLocation())) {
-            List<LocationInfo> locations = new ArrayList<>();
-            LocationInfo info = new LocationInfo();
-            info.setLocation(request.getLocation());
-            info.setQuantity(product.getQuantity() != null ? product.getQuantity() : 0);
-            info.setCreatedAt(new Date());
-            locations.add(info);
-            product.setLocations(locations);
-        }
         product.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
         product.setPrice(request.getPrice());
         product.setCostPrice(request.getCostPrice());
         product.setDescription(request.getDescription());
 
-        FinishedProduct saved = saveExistingFinishedProduct(product);
+        FinishedProduct saved = finishedProductRepository.save(product);
         return convertToFinishedProductVO(saved);
     }
 
@@ -252,12 +217,6 @@ public class InventoryServiceImpl implements InventoryService {
 
         if (request.getName() != null) {
             product.setName(request.getName());
-        }
-        if (request.getProductCode() != null) {
-            product.setProductCode(request.getProductCode());
-        }
-        if (request.getBatchNo() != null) {
-            product.setBatchNo(request.getBatchNo());
         }
         if (request.getCategory() != null) {
             product.setCategory(request.getCategory());
@@ -281,7 +240,7 @@ public class InventoryServiceImpl implements InventoryService {
             product.setDescription(request.getDescription());
         }
 
-        FinishedProduct saved = saveExistingFinishedProduct(product);
+        FinishedProduct saved = finishedProductRepository.save(product);
         return convertToFinishedProductVO(saved);
     }
 
@@ -298,16 +257,98 @@ public class InventoryServiceImpl implements InventoryService {
         log.info("开始入库操作 - 类型: {}, 物品ID: {}, 数量: {}, 操作人: {}",
                 request.getItemType(), request.getItemId(), request.getQuantity(), operatorId);
 
-        String itemName;
+        String itemName = "";
         if ("RAW_MATERIAL".equals(request.getItemType())) {
-            itemName = stockInRawMaterial(request);
+            RawMaterial material = rawMaterialRepository.findById(request.getItemId())
+                    .orElseThrow(() -> {
+                        log.error("原材料不存在，ID: {}", request.getItemId());
+                        return new BusinessException("原材料不存在，ID: " + request.getItemId());
+                    });
+            if (request.getReason() != null && request.getReason().contains("位置:")) {
+                String location = extractLocation(request.getReason());
+                if (location != null && !location.isEmpty()) {
+                    addOrUpdateRawMaterialLocation(material, location, request.getQuantity());
+                    log.info("更新原材料存放位置: {} 数量: {}", location, request.getQuantity());
+                }
+            } else {
+                boolean increased = mongoAtomicOpsService.changeRawMaterialQuantity(request.getItemId(), request.getQuantity(), null);
+                if (!increased) {
+                    throw new BusinessException("库存更新失败，请刷新后重试");
+                }
+                material.setQuantity((material.getQuantity() != null ? material.getQuantity() : 0) + request.getQuantity());
+            }
+
+            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+                recalculateRawMaterialQuantity(material);
+                rawMaterialRepository.save(material);
+            }
+            itemName = material.getName();
+            log.info("原材料入库成功 - 名称: {}, 新库存: {}", itemName, material.getQuantity());
         } else if ("FINISHED_PRODUCT".equals(request.getItemType())) {
-            itemName = stockInFinishedProduct(request);
+            log.info("成品入库 - 查找生产计划，ID: {}", request.getItemId());
+
+            ProductionPlan plan = productionPlanRepository.findById(request.getItemId())
+                    .orElseThrow(() -> {
+                        log.error("生产计划不存在，ID: {}", request.getItemId());
+                        return new BusinessException("生产计划不存在，ID: " + request.getItemId());
+                    });
+
+            log.info("找到生产计划 - 批次号: {}, 产品名: {}, 状态: {}",
+                    plan.getBatchNo(), plan.getProductName(), plan.getStatus());
+
+            if (!"COMPLETED".equals(plan.getStatus())) {
+                log.error("生产计划未完成，无法入库 - 计划ID: {}, 当前状态: {}",
+                        plan.getId(), plan.getStatus());
+                throw new BusinessException("生产计划尚未完成，无法入库。当前状态: " + plan.getStatus());
+            }
+
+            FinishedProduct product = findOrCreateFinishedProduct(plan);
+
+            int oldQuantity = 0;
+            if (request.getReason() != null && request.getReason().contains("位置:")) {
+                String location = extractLocation(request.getReason());
+                if (location != null && !location.isEmpty()) {
+                    addOrUpdateLocation(product, location, request.getQuantity());
+                    log.info("更新成品存放位置: {} 数量: {}", location, request.getQuantity());
+                }
+            } else {
+                oldQuantity = product.getQuantity();
+                product.setQuantity(oldQuantity + request.getQuantity());
+            }
+
+            recalculateFinishedProductQuantity(product);
+            finishedProductRepository.save(product);
+            itemName = product.getName();
+
+            int oldStockedInQuantity = plan.getStockedInQuantity() != null ? plan.getStockedInQuantity() : 0;
+            plan.setStockedInQuantity(oldStockedInQuantity + request.getQuantity());
+            productionPlanRepository.save(plan);
+
+            log.info("成品入库成功 - 名称: {}, 成品ID: {}, 入库数量: {}, 旧库存: {}, 新库存: {}, 计划已入库: {}/{}",
+                    itemName, product.getId(), request.getQuantity(), oldQuantity, product.getQuantity(),
+                    plan.getStockedInQuantity(), plan.getCompletedQuantity());
         } else {
+            log.error("无效的物品类型: {}", request.getItemType());
             throw new BusinessException("无效的物品类型: " + request.getItemType());
         }
 
-        return saveOperatorInventoryRecord("IN", request, operatorId, itemName);
+        String operatorName = getOperatorName(operatorId);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("IN");
+        record.setItemType(request.getItemType());
+        record.setItemId(request.getItemId());
+        record.setItemName(itemName);
+        record.setQuantity(request.getQuantity());
+        record.setOperator(operatorId);
+        record.setOperatorName(operatorName);
+        record.setReason(request.getReason());
+
+        InventoryRecord saved = inventoryRecordRepository.save(record);
+        log.info("入库记录已保存 - 记录ID: {}, 物品: {}, 数量: {}",
+                saved.getId(), itemName, request.getQuantity());
+
+        return convertToInventoryRecordVO(saved);
     }
 
     @Override
@@ -315,17 +356,115 @@ public class InventoryServiceImpl implements InventoryService {
         log.info("开始出库操作 - 类型: {}, 物品ID: {}, 数量: {}, 操作人: {}",
                 request.getItemType(), request.getItemId(), request.getQuantity(), operatorId);
 
-        String itemName;
+        String itemName = "";
         if ("RAW_MATERIAL".equals(request.getItemType())) {
-            itemName = stockOutRawMaterial(request);
+            RawMaterial material = rawMaterialRepository.findById(request.getItemId())
+                    .orElseThrow(() -> new BusinessException("原材料不存在"));
+
+            String location = extractLocation(request.getReason());
+            if (StringUtils.hasText(location) && material.getLocations() != null && !material.getLocations().isEmpty()) {
+                LocationInfo targetLoc = material.getLocations().stream()
+                        .filter(l -> location.equals(l.getLocation()))
+                        .findFirst()
+                        .orElse(null);
+                if (targetLoc == null) {
+                    throw new BusinessException("出库位置不存在: " + location);
+                }
+                if (targetLoc.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "位置 %s 库存不足，当前可用: %d，请求出库: %d",
+                            location, targetLoc.getQuantity(), request.getQuantity()));
+                }
+                log.info("原材料出库 - 名称: {}, 位置: {}, 出库数量: {}, 位置原库存: {}",
+                        material.getName(), location, request.getQuantity(), targetLoc.getQuantity());
+                targetLoc.setQuantity(targetLoc.getQuantity() - request.getQuantity());
+                material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+            } else {
+                if (material.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException("库存不足，当前库存：" + material.getQuantity());
+                }
+                boolean deducted = mongoAtomicOpsService.changeRawMaterialQuantity(request.getItemId(), -request.getQuantity(), 0);
+                if (!deducted) {
+                    throw new BusinessException("库存不足或已被其他操作更新，请刷新后重试");
+                }
+                material.setQuantity(material.getQuantity() - request.getQuantity());
+            }
+
+            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+                recalculateRawMaterialQuantity(material);
+                rawMaterialRepository.save(material);
+            }
+            itemName = material.getName();
+
+            if (material.getAlertThreshold() != null && material.getQuantity() <= material.getAlertThreshold()) {
+                createAlertIfNeeded("RAW_MATERIAL", material.getId(), material.getName(),
+                        material.getQuantity(), material.getAlertThreshold());
+            }
+
+            log.info("原材料出库成功 - 名称: {}, 原材料ID: {}, 出库数量: {}, 新库存: {}, 剩余位置数: {}",
+                    itemName, material.getId(), request.getQuantity(), material.getQuantity(),
+                    material.getLocations() != null ? material.getLocations().size() : 0);
         } else if ("FINISHED_PRODUCT".equals(request.getItemType())) {
-            itemName = stockOutFinishedProduct(request);
+            FinishedProduct product = finishedProductRepository.findById(request.getItemId())
+                    .orElseThrow(() -> new BusinessException("成品不存在"));
+
+            String location = extractLocation(request.getReason());
+            if (StringUtils.hasText(location) && product.getLocations() != null && !product.getLocations().isEmpty()) {
+                LocationInfo targetLoc = product.getLocations().stream()
+                        .filter(l -> location.equals(l.getLocation()))
+                        .findFirst()
+                        .orElse(null);
+                if (targetLoc == null) {
+                    throw new BusinessException("出库位置不存在: " + location);
+                }
+                if (targetLoc.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "位置 %s 库存不足，当前可用: %d，请求出库: %d",
+                            location, targetLoc.getQuantity(), request.getQuantity()));
+                }
+                log.info("成品出库 - 名称: {}, 位置: {}, 出库数量: {}, 位置原库存: {}",
+                        product.getName(), location, request.getQuantity(), targetLoc.getQuantity());
+                targetLoc.setQuantity(targetLoc.getQuantity() - request.getQuantity());
+                product.getLocations().removeIf(l -> l.getQuantity() <= 0);
+            } else {
+                if (product.getQuantity() < request.getQuantity()) {
+                    throw new BusinessException("库存不足，当前库存：" + product.getQuantity());
+                }
+                product.setQuantity(product.getQuantity() - request.getQuantity());
+            }
+
+            recalculateFinishedProductQuantity(product);
+            finishedProductRepository.save(product);
+            itemName = product.getName();
+
+            if (product.getAlertThreshold() != null && product.getQuantity() <= product.getAlertThreshold()) {
+                createAlertIfNeeded("FINISHED_PRODUCT", product.getId(), product.getName(),
+                        product.getQuantity(), product.getAlertThreshold());
+            }
+
+            log.info("成品出库成功 - 名称: {}, 成品ID: {}, 出库数量: {}, 新库存: {}, 剩余位置数: {}",
+                    itemName, product.getId(), request.getQuantity(), product.getQuantity(),
+                    product.getLocations() != null ? product.getLocations().size() : 0);
         } else {
             throw new BusinessException("无效的物品类型");
         }
 
-        return saveOperatorInventoryRecord("OUT", request, operatorId, itemName);
+        String operatorName = getOperatorName(operatorId);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType(request.getItemType());
+        record.setItemId(request.getItemId());
+        record.setItemName(itemName);
+        record.setQuantity(request.getQuantity());
+        record.setOperator(operatorId);
+        record.setOperatorName(operatorName);
+        record.setReason(request.getReason());
+
+        InventoryRecord saved = inventoryRecordRepository.save(record);
+        return convertToInventoryRecordVO(saved);
     }
+
     @Override
     public Page<InventoryRecordVO> getInventoryRecords(String itemType, String itemId, Pageable pageable) {
         List<InventoryRecord> all = inventoryRecordRepository.findAll();
@@ -398,7 +537,7 @@ public class InventoryServiceImpl implements InventoryService {
                 .orElseThrow(() -> new BusinessException("原材料不存在"));
 
         material.setAlertThreshold(request.getAlertThreshold());
-        RawMaterial saved = saveExistingRawMaterial(material);
+        RawMaterial saved = rawMaterialRepository.save(material);
         return convertToRawMaterialVO(saved);
     }
 
@@ -408,7 +547,7 @@ public class InventoryServiceImpl implements InventoryService {
                 .orElseThrow(() -> new BusinessException("成品不存在"));
 
         product.setAlertThreshold(request.getAlertThreshold());
-        FinishedProduct saved = saveExistingFinishedProduct(product);
+        FinishedProduct saved = finishedProductRepository.save(product);
         return convertToFinishedProductVO(saved);
     }
 
@@ -436,170 +575,6 @@ public class InventoryServiceImpl implements InventoryService {
         return userRepository.findById(operatorId)
                 .map(User::getRealName)
                 .orElse("");
-    }
-
-    private String stockInRawMaterial(StockInOutRequest request) {
-        RawMaterial material = rawMaterialRepository.findById(request.getItemId())
-                .orElseThrow(() -> new BusinessException("原材料不存在，ID: " + request.getItemId()));
-
-        String location = extractLocation(request.getReason());
-        if (StringUtils.hasText(location)) {
-            material = updateRawMaterialLocationsWithRetry(request.getItemId(), current ->
-                    addOrUpdateRawMaterialLocation(current, location, request.getQuantity()));
-        } else {
-            boolean increased = mongoAtomicOpsService.changeRawMaterialQuantity(
-                    request.getItemId(), request.getQuantity(), null);
-            if (!increased) {
-                throw new BusinessException("库存更新失败，请刷新后重试");
-            }
-            material.setQuantity(getSafeQuantity(material.getQuantity()) + request.getQuantity());
-
-            if (hasLocationInventory(material.getLocations())) {
-                recalculateRawMaterialQuantity(material);
-                material = saveExistingRawMaterial(material);
-            }
-        }
-        return material.getName();
-    }
-
-    private String stockInFinishedProduct(StockInOutRequest request) {
-        ProductionPlan plan = productionPlanRepository.findById(request.getItemId()).orElse(null);
-        FinishedProduct product = resolveFinishedProductForStockIn(request.getItemId(), plan);
-
-        String location = extractLocation(request.getReason());
-        if (StringUtils.hasText(location)) {
-            addOrUpdateLocation(product, location, request.getQuantity());
-            recalculateFinishedProductQuantity(product);
-            product = saveExistingFinishedProduct(product);
-        } else {
-            product.setQuantity(getSafeQuantity(product.getQuantity()) + request.getQuantity());
-            if (hasLocationInventory(product.getLocations())) {
-                recalculateFinishedProductQuantity(product);
-            }
-            product = saveExistingFinishedProduct(product);
-        }
-
-        if (plan != null) {
-            int oldStockedInQuantity = getSafeQuantity(plan.getStockedInQuantity());
-            plan.setStockedInQuantity(oldStockedInQuantity + request.getQuantity());
-            productionPlanRepository.save(plan);
-        }
-        return product.getName();
-    }
-
-    private String stockOutRawMaterial(StockInOutRequest request) {
-        RawMaterial material = rawMaterialRepository.findById(request.getItemId())
-                .orElseThrow(() -> new BusinessException("原材料不存在"));
-
-        String location = extractLocation(request.getReason());
-        if (StringUtils.hasText(location) && hasLocationInventory(material.getLocations())) {
-            material = updateRawMaterialLocationsWithRetry(request.getItemId(), current ->
-                    deductFromLocation(current.getLocations(), location, request.getQuantity()));
-        } else {
-            int available = getSafeQuantity(material.getQuantity());
-            if (available < request.getQuantity()) {
-                throw new BusinessException("库存不足，当前库存：" + available);
-            }
-
-            boolean deducted = mongoAtomicOpsService.changeRawMaterialQuantity(
-                    request.getItemId(), -request.getQuantity(), 0);
-            if (!deducted) {
-                throw new BusinessException("库存不足或已被其他操作更新，请刷新后重试");
-            }
-
-            material.setQuantity(available - request.getQuantity());
-            if (hasLocationInventory(material.getLocations())) {
-                recalculateRawMaterialQuantity(material);
-                material = saveExistingRawMaterial(material);
-            }
-        }
-
-        if (material.getAlertThreshold() != null && material.getQuantity() <= material.getAlertThreshold()) {
-            createAlertIfNeeded("RAW_MATERIAL", material.getId(), material.getName(),
-                    material.getQuantity(), material.getAlertThreshold());
-        }
-        return material.getName();
-    }
-
-    private String stockOutFinishedProduct(StockInOutRequest request) {
-        FinishedProduct product = finishedProductRepository.findById(request.getItemId())
-                .orElseThrow(() -> new BusinessException("成品不存在"));
-
-        String location = extractLocation(request.getReason());
-        if (StringUtils.hasText(location) && hasLocationInventory(product.getLocations())) {
-            product = updateFinishedProductLocationsWithRetry(request.getItemId(), current ->
-                    deductFromLocation(current.getLocations(), location, request.getQuantity()));
-        } else {
-            int available = getSafeQuantity(product.getQuantity());
-            if (available < request.getQuantity()) {
-                throw new BusinessException("库存不足，当前库存：" + available);
-            }
-            product.setQuantity(available - request.getQuantity());
-            if (hasLocationInventory(product.getLocations())) {
-                recalculateFinishedProductQuantity(product);
-            }
-            product = saveExistingFinishedProduct(product);
-        }
-
-        if (product.getAlertThreshold() != null && product.getQuantity() <= product.getAlertThreshold()) {
-            createAlertIfNeeded("FINISHED_PRODUCT", product.getId(), product.getName(),
-                    product.getQuantity(), product.getAlertThreshold());
-        }
-        return product.getName();
-    }
-
-    private FinishedProduct resolveFinishedProductForStockIn(String itemId, ProductionPlan plan) {
-        if (plan != null) {
-            if (!"COMPLETED".equals(plan.getStatus())) {
-                throw new BusinessException("生产计划尚未完成，无法入库。当前状态: " + plan.getStatus());
-            }
-            return findOrCreateFinishedProduct(plan);
-        }
-
-        return finishedProductRepository.findById(itemId)
-                .orElseThrow(() -> new BusinessException("成品不存在，ID: " + itemId));
-    }
-
-    private InventoryRecordVO saveOperatorInventoryRecord(String inventoryType, StockInOutRequest request,
-                                                          String operatorId, String itemName) {
-        InventoryRecord saved = inventoryRecordRepository.save(buildInventoryRecord(
-                inventoryType,
-                request.getItemType(),
-                request.getItemId(),
-                itemName,
-                request.getQuantity(),
-                operatorId,
-                getOperatorName(operatorId),
-                request.getReason()));
-        return convertToInventoryRecordVO(saved);
-    }
-
-    private void saveSystemInventoryRecord(String itemType, String itemId, String itemName,
-                                           int quantity, String reason) {
-        inventoryRecordRepository.save(buildInventoryRecord(
-                "OUT",
-                itemType,
-                itemId,
-                itemName,
-                -quantity,
-                SYSTEM_OPERATOR,
-                SYSTEM_OPERATOR_NAME,
-                reason));
-    }
-
-    private InventoryRecord buildInventoryRecord(String inventoryType, String itemType, String itemId,
-                                                 String itemName, int quantity, String operator,
-                                                 String operatorName, String reason) {
-        InventoryRecord record = new InventoryRecord();
-        record.setInventoryType(inventoryType);
-        record.setItemType(itemType);
-        record.setItemId(itemId);
-        record.setItemName(itemName);
-        record.setQuantity(quantity);
-        record.setOperator(operator);
-        record.setOperatorName(operatorName);
-        record.setReason(reason);
-        return record;
     }
 
     private FinishedProduct findOrCreateFinishedProduct(ProductionPlan plan) {
@@ -642,152 +617,15 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private String extractLocation(String reason) {
-        if (!StringUtils.hasText(reason)) {
+        if (reason == null || !reason.contains("位置:")) {
             return null;
         }
-
-        String[] markers = {LEGACY_LOCATION_MARKER, "位置:"};
-        for (String marker : markers) {
-            int markerIndex = reason.indexOf(marker);
-            if (markerIndex >= 0) {
-                int startIndex = markerIndex + marker.length();
-                int endIndex = reason.indexOf(" |", startIndex);
-                if (endIndex == -1) {
-                    endIndex = reason.length();
-                }
-                return reason.substring(startIndex, endIndex).trim();
-            }
+        int startIndex = reason.indexOf("位置:") + 3;
+        int endIndex = reason.indexOf(" |", startIndex);
+        if (endIndex == -1) {
+            endIndex = reason.length();
         }
-
-        String[] segments = reason.split("\\|");
-        for (int i = segments.length - 1; i >= 0; i--) {
-            String segment = segments[i].trim();
-            int colonIndex = segment.indexOf(':');
-            if (colonIndex >= 0 && colonIndex + 1 < segment.length()) {
-                String candidate = segment.substring(colonIndex + 1).trim();
-                if (StringUtils.hasText(candidate)) {
-                    return candidate;
-                }
-            }
-        }
-        return null;
-    }
-
-    private int getSafeQuantity(Integer quantity) {
-        return quantity != null ? quantity : 0;
-    }
-
-    private boolean hasLocationInventory(List<LocationInfo> locations) {
-        return locations != null && !locations.isEmpty();
-    }
-
-    private LocationInfo findLocation(List<LocationInfo> locations, String location) {
-        if (!hasLocationInventory(locations)) {
-            return null;
-        }
-        return locations.stream()
-                .filter(item -> location.equals(item.getLocation()))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private void removeEmptyLocations(List<LocationInfo> locations) {
-        if (locations != null) {
-            locations.removeIf(location -> getSafeQuantity(location.getQuantity()) <= 0);
-        }
-    }
-
-    private List<LocationInfo> sortLocationsByCreatedAt(List<LocationInfo> locations) {
-        List<LocationInfo> sortedLocations = new ArrayList<>(locations);
-        sortedLocations.sort(LOCATION_CREATED_AT_COMPARATOR);
-        return sortedLocations;
-    }
-
-    private void addOrUpdateLocation(List<LocationInfo> locations, String location, int quantity) {
-        LocationInfo existing = findLocation(locations, location);
-        if (existing != null) {
-            existing.setQuantity(getSafeQuantity(existing.getQuantity()) + quantity);
-            return;
-        }
-
-        LocationInfo newLocation = new LocationInfo();
-        newLocation.setLocation(location);
-        newLocation.setQuantity(quantity);
-        newLocation.setCreatedAt(new Date());
-        locations.add(newLocation);
-    }
-
-    private void deductFromLocation(List<LocationInfo> locations, String location, int quantity) {
-        LocationInfo targetLoc = findLocation(locations, location);
-        if (targetLoc == null) {
-            throw new BusinessException("出库位置不存在: " + location);
-        }
-
-        int available = getSafeQuantity(targetLoc.getQuantity());
-        if (available < quantity) {
-            throw new BusinessException(String.format(
-                    LOCATION_INSUFFICIENT_MESSAGE_TEMPLATE, location, available, quantity));
-        }
-
-        targetLoc.setQuantity(available - quantity);
-        removeEmptyLocations(locations);
-    }
-
-    private String deductByFifo(List<LocationInfo> locations, int quantity) {
-        int remaining = quantity;
-        StringBuilder deductionLog = new StringBuilder();
-
-        for (LocationInfo location : sortLocationsByCreatedAt(locations)) {
-            if (remaining <= 0) {
-                break;
-            }
-
-            int available = getSafeQuantity(location.getQuantity());
-            if (available <= 0) {
-                continue;
-            }
-
-            int deduct = Math.min(available, remaining);
-            location.setQuantity(available - deduct);
-            remaining -= deduct;
-            deductionLog.append(location.getLocation()).append("(").append(deduct).append(")");
-        }
-
-        if (remaining > 0) {
-            throw new BusinessException(String.format(
-                    FIFO_LOCATION_INSUFFICIENT_MESSAGE_TEMPLATE, quantity, quantity - remaining));
-        }
-
-        removeEmptyLocations(locations);
-        return deductionLog.toString();
-    }
-
-    private void moveLocationInventory(List<LocationInfo> locations, MoveLocationRequest request) {
-        LocationInfo sourceLoc = findLocation(locations, request.getSourceLocation());
-        if (sourceLoc == null) {
-            throw new BusinessException("源位置不存在: " + request.getSourceLocation());
-        }
-
-        int sourceQuantity = getSafeQuantity(sourceLoc.getQuantity());
-        if (sourceQuantity < request.getQuantity()) {
-            throw new BusinessException(String.format(
-                    "源位置 %s 库存不足，当前可用: %d，请求移动: %d",
-                    request.getSourceLocation(), sourceQuantity, request.getQuantity()));
-        }
-
-        sourceLoc.setQuantity(sourceQuantity - request.getQuantity());
-        log.info("源位置 {} 减少后剩余: {}", sourceLoc.getLocation(), sourceLoc.getQuantity());
-
-        LocationInfo targetLoc = findLocation(locations, request.getTargetLocation());
-        if (targetLoc != null) {
-            targetLoc.setQuantity(getSafeQuantity(targetLoc.getQuantity()) + request.getQuantity());
-            log.info("目标位置 {} 已存在，增加后: {}", targetLoc.getLocation(), targetLoc.getQuantity());
-        } else {
-            addOrUpdateLocation(locations, request.getTargetLocation(), request.getQuantity());
-            log.info("创建新目标位置 {}: {}", request.getTargetLocation(), request.getQuantity());
-        }
-
-        removeEmptyLocations(locations);
+        return reason.substring(startIndex, endIndex).trim();
     }
 
     private void recalculateRawMaterialQuantity(RawMaterial material) {
@@ -813,215 +651,7 @@ public class InventoryServiceImpl implements InventoryService {
             log.warn("检测到原材料数量不一致 - ID: {}, 原始quantity: {}, 正确总量: {}, 自动修正",
                     material.getId(), material.getQuantity(), correctTotal);
             material.setQuantity(correctTotal);
-            saveExistingRawMaterial(material, repo);
-        }
-    }
-
-    private RawMaterial saveExistingRawMaterial(RawMaterial material) {
-        return saveExistingRawMaterial(material, rawMaterialRepository);
-    }
-
-    private RawMaterial saveExistingRawMaterial(RawMaterial material, RawMaterialRepository repository) {
-        prepareLegacyRawMaterialVersionForSave(material);
-        try {
-            return repository.save(material);
-        } catch (OptimisticLockingFailureException ex) {
-            log.warn("原材料保存时发生并发冲突 - ID: {}", material != null ? material.getId() : null, ex);
-            throw new BusinessException("库存已被其他操作更新，请刷新后重试");
-        }
-    }
-
-    private void prepareLegacyRawMaterialVersionForSave(RawMaterial material) {
-        if (material == null || !StringUtils.hasText(material.getId()) || material.getVersion() != null) {
-            return;
-        }
-
-        boolean initialized = mongoAtomicOpsService.initializeRawMaterialVersionIfMissing(material.getId());
-        material.setVersion(0L);
-        if (initialized) {
-            log.warn("检测到原材料缺少 version 字段，已初始化为 0 - ID: {}", material.getId());
-        }
-    }
-
-    private FinishedProduct saveExistingFinishedProduct(FinishedProduct product) {
-        return saveExistingFinishedProduct(product, finishedProductRepository);
-    }
-
-    private RawMaterial saveRawMaterialLocationUpdate(RawMaterial material) {
-        prepareLegacyRawMaterialVersionForSave(material);
-        try {
-            return rawMaterialRepository.save(material);
-        } catch (OptimisticLockingFailureException ex) {
-            log.warn("原材料库位更新发生乐观锁冲突 - ID: {}",
-                    material != null ? material.getId() : null, ex);
-            throw new BusinessException(INVENTORY_CONFLICT_MESSAGE);
-        }
-    }
-
-    private FinishedProduct saveFinishedProductLocationUpdate(FinishedProduct product) {
-        prepareLegacyFinishedProductVersionForSave(product);
-        try {
-            return finishedProductRepository.save(product);
-        } catch (OptimisticLockingFailureException ex) {
-            log.warn("成品库位更新发生乐观锁冲突 - ID: {}",
-                    product != null ? product.getId() : null, ex);
-            throw new BusinessException(INVENTORY_CONFLICT_MESSAGE);
-        }
-    }
-
-    private RawMaterial updateRawMaterialLocationsWithRetry(String materialId, Consumer<RawMaterial> mutator) {
-        return updateLocationsWithRetry(
-                materialId,
-                () -> rawMaterialRepository.findById(materialId)
-                        .orElseThrow(() -> new BusinessException("原材料不存在")),
-                this::copyRawMaterial,
-                mutator,
-                this::recalculateRawMaterialQuantity,
-                this::saveRawMaterialLocationUpdate,
-                this::syncRawMaterialState,
-                "原材料库位更新");
-    }
-
-    private FinishedProduct updateFinishedProductLocationsWithRetry(String productId,
-                                                                    Consumer<FinishedProduct> mutator) {
-        return updateLocationsWithRetry(
-                productId,
-                () -> finishedProductRepository.findById(productId)
-                        .orElseThrow(() -> new BusinessException("成品不存在")),
-                this::copyFinishedProduct,
-                mutator,
-                this::recalculateFinishedProductQuantity,
-                this::saveFinishedProductLocationUpdate,
-                this::syncFinishedProductState,
-                "成品库位更新");
-    }
-
-    private <T> T updateLocationsWithRetry(String itemId,
-                                           Supplier<T> loader,
-                                           Function<T, T> copier,
-                                           Consumer<T> mutator,
-                                           Consumer<T> recalculator,
-                                           Function<T, T> saver,
-                                           BiConsumer<T, T> stateSynchronizer,
-                                           String retryLogPrefix) {
-        for (int attempt = 1; attempt <= LOCATION_CONFLICT_RETRY_LIMIT; attempt++) {
-            T loaded = loader.get();
-            T current = copier.apply(loaded);
-            mutator.accept(current);
-            recalculator.accept(current);
-            try {
-                T saved = saver.apply(current);
-                stateSynchronizer.accept(loaded, saved);
-                return saved;
-            } catch (BusinessException ex) {
-                if (!isRetryableLocationConflict(ex) || attempt == LOCATION_CONFLICT_RETRY_LIMIT) {
-                    throw ex;
-                }
-                log.warn("{}将基于最新数据重试 - ID: {}, 第{}次",
-                        retryLogPrefix, itemId, attempt);
-            }
-        }
-        throw new BusinessException(INVENTORY_CONFLICT_MESSAGE);
-    }
-
-    private RawMaterial copyRawMaterial(RawMaterial source) {
-        if (source == null) {
-            return null;
-        }
-        RawMaterial copy = new RawMaterial();
-        syncRawMaterialState(copy, source);
-        return copy;
-    }
-
-    private FinishedProduct copyFinishedProduct(FinishedProduct source) {
-        if (source == null) {
-            return null;
-        }
-        FinishedProduct copy = new FinishedProduct();
-        syncFinishedProductState(copy, source);
-        return copy;
-    }
-
-    private void syncRawMaterialState(RawMaterial target, RawMaterial source) {
-        if (target == null || source == null) {
-            return;
-        }
-        target.setId(source.getId());
-        target.setName(source.getName());
-        target.setCategory(source.getCategory());
-        target.setSpecification(source.getSpecification());
-        target.setUnit(source.getUnit());
-        target.setQuantity(source.getQuantity());
-        target.setAlertThreshold(source.getAlertThreshold());
-        target.setLocations(copyLocations(source.getLocations()));
-        target.setSupplier(source.getSupplier());
-        target.setPrice(source.getPrice());
-        target.setDescription(source.getDescription());
-        target.setCreateTime(source.getCreateTime() != null ? new Date(source.getCreateTime().getTime()) : null);
-        target.setUpdateTime(source.getUpdateTime() != null ? new Date(source.getUpdateTime().getTime()) : null);
-        target.setVersion(source.getVersion());
-    }
-
-    private void syncFinishedProductState(FinishedProduct target, FinishedProduct source) {
-        if (target == null || source == null) {
-            return;
-        }
-        target.setId(source.getId());
-        target.setProductCode(source.getProductCode());
-        target.setName(source.getName());
-        target.setCategory(source.getCategory());
-        target.setColor(source.getColor());
-        target.setSize(source.getSize());
-        target.setBatchNo(source.getBatchNo());
-        target.setUnit(source.getUnit());
-        target.setQuantity(source.getQuantity());
-        target.setAlertThreshold(source.getAlertThreshold());
-        target.setLocations(copyLocations(source.getLocations()));
-        target.setPrice(source.getPrice());
-        target.setCostPrice(source.getCostPrice());
-        target.setDescription(source.getDescription());
-        target.setCreateTime(source.getCreateTime() != null ? new Date(source.getCreateTime().getTime()) : null);
-        target.setUpdateTime(source.getUpdateTime() != null ? new Date(source.getUpdateTime().getTime()) : null);
-        target.setVersion(source.getVersion());
-    }
-
-    private List<LocationInfo> copyLocations(List<LocationInfo> locations) {
-        if (locations == null) {
-            return null;
-        }
-        List<LocationInfo> copies = new ArrayList<>(locations.size());
-        for (LocationInfo location : locations) {
-            copies.add(new LocationInfo(
-                    location.getLocation(),
-                    location.getQuantity(),
-                    location.getCreatedAt() != null ? new Date(location.getCreatedAt().getTime()) : null));
-        }
-        return copies;
-    }
-
-    private boolean isRetryableLocationConflict(BusinessException ex) {
-        return ex != null && INVENTORY_CONFLICT_MESSAGE.equals(ex.getMessage());
-    }
-
-    private FinishedProduct saveExistingFinishedProduct(FinishedProduct product, FinishedProductRepository repository) {
-        prepareLegacyFinishedProductVersionForSave(product);
-        try {
-            return repository.save(product);
-        } catch (OptimisticLockingFailureException ex) {
-            log.warn("成品保存时发生并发冲突 - ID: {}", product != null ? product.getId() : null, ex);
-            throw new BusinessException("库存已被其他操作更新，请刷新后重试");
-        }
-    }
-
-    private void prepareLegacyFinishedProductVersionForSave(FinishedProduct product) {
-        if (product == null || !StringUtils.hasText(product.getId()) || product.getVersion() != null) {
-            return;
-        }
-
-        boolean initialized = mongoAtomicOpsService.initializeFinishedProductVersionIfMissing(product.getId());
-        product.setVersion(0L);
-        if (initialized) {
-            log.warn("检测到成品缺少 version 字段，已初始化为 0 - ID: {}", product.getId());
+            repo.save(material);
         }
     }
 
@@ -1036,7 +666,7 @@ public class InventoryServiceImpl implements InventoryService {
             log.warn("检测到成品数量不一致 - ID: {}, 原始quantity: {}, 正确总量: {}, 自动修正",
                     product.getId(), product.getQuantity(), correctTotal);
             product.setQuantity(correctTotal);
-            saveExistingFinishedProduct(product, repo);
+            repo.save(product);
         }
     }
 
@@ -1056,14 +686,38 @@ public class InventoryServiceImpl implements InventoryService {
         if (product.getLocations() == null) {
             product.setLocations(new ArrayList<>());
         }
-        addOrUpdateLocation(product.getLocations(), location, quantity);
+        LocationInfo existing = product.getLocations().stream()
+                .filter(l -> location.equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + quantity);
+        } else {
+            LocationInfo newLocation = new LocationInfo();
+            newLocation.setLocation(location);
+            newLocation.setQuantity(quantity);
+            newLocation.setCreatedAt(new Date());
+            product.getLocations().add(newLocation);
+        }
     }
 
     private void addOrUpdateRawMaterialLocation(RawMaterial material, String location, int quantity) {
         if (material.getLocations() == null) {
             material.setLocations(new ArrayList<>());
         }
-        addOrUpdateLocation(material.getLocations(), location, quantity);
+        LocationInfo existing = material.getLocations().stream()
+                .filter(l -> location.equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + quantity);
+        } else {
+            LocationInfo newLocation = new LocationInfo();
+            newLocation.setLocation(location);
+            newLocation.setQuantity(quantity);
+            newLocation.setCreatedAt(new Date());
+            material.getLocations().add(newLocation);
+        }
     }
 
     private RawMaterialVO convertToRawMaterialVO(RawMaterial material) {
@@ -1189,10 +843,43 @@ public class InventoryServiceImpl implements InventoryService {
             throw new BusinessException("该原材料暂无存放位置记录，无法执行跨库移动");
         }
 
-        moveLocationInventory(material.getLocations(), request);
+        LocationInfo sourceLoc = material.getLocations().stream()
+                .filter(l -> request.getSourceLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (sourceLoc == null) {
+            throw new BusinessException("源位置不存在: " + request.getSourceLocation());
+        }
+        if (sourceLoc.getQuantity() < request.getQuantity()) {
+            throw new BusinessException(String.format(
+                    "源位置 %s 库存不足，当前可用: %d，请求移动: %d",
+                    request.getSourceLocation(), sourceLoc.getQuantity(), request.getQuantity()));
+        }
+
+        sourceLoc.setQuantity(sourceLoc.getQuantity() - request.getQuantity());
+        log.info("源位置 {} 减少后剩余: {}", sourceLoc.getLocation(), sourceLoc.getQuantity());
+
+        LocationInfo targetLoc = material.getLocations().stream()
+                .filter(l -> request.getTargetLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (targetLoc != null) {
+            targetLoc.setQuantity(targetLoc.getQuantity() + request.getQuantity());
+            log.info("目标位置 {} 已存在，增加后: {}", targetLoc.getLocation(), targetLoc.getQuantity());
+        } else {
+            LocationInfo newTarget = new LocationInfo();
+            newTarget.setLocation(request.getTargetLocation());
+            newTarget.setQuantity(request.getQuantity());
+            newTarget.setCreatedAt(new Date());
+            material.getLocations().add(newTarget);
+            log.info("创建新目标位置 {}: {}", request.getTargetLocation(), request.getQuantity());
+        }
+
+        material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
         recalculateRawMaterialQuantity(material);
 
-        RawMaterial saved = saveExistingRawMaterial(material);
+        RawMaterial saved = rawMaterialRepository.save(material);
 
         log.info("跨库移动完成 - 原材料ID: {}, 新总量: {}, 剩余位置数: {}",
                 saved.getId(), saved.getQuantity(),
@@ -1223,10 +910,43 @@ public class InventoryServiceImpl implements InventoryService {
             throw new BusinessException("该成品暂无存放位置记录，无法执行跨库移动");
         }
 
-        moveLocationInventory(product.getLocations(), request);
+        LocationInfo sourceLoc = product.getLocations().stream()
+                .filter(l -> request.getSourceLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (sourceLoc == null) {
+            throw new BusinessException("源位置不存在: " + request.getSourceLocation());
+        }
+        if (sourceLoc.getQuantity() < request.getQuantity()) {
+            throw new BusinessException(String.format(
+                    "源位置 %s 库存不足，当前可用: %d，请求移动: %d",
+                    request.getSourceLocation(), sourceLoc.getQuantity(), request.getQuantity()));
+        }
+
+        sourceLoc.setQuantity(sourceLoc.getQuantity() - request.getQuantity());
+        log.info("源位置 {} 减少后剩余: {}", sourceLoc.getLocation(), sourceLoc.getQuantity());
+
+        LocationInfo targetLoc = product.getLocations().stream()
+                .filter(l -> request.getTargetLocation().equals(l.getLocation()))
+                .findFirst()
+                .orElse(null);
+        if (targetLoc != null) {
+            targetLoc.setQuantity(targetLoc.getQuantity() + request.getQuantity());
+            log.info("目标位置 {} 已存在，增加后: {}", targetLoc.getLocation(), targetLoc.getQuantity());
+        } else {
+            LocationInfo newTarget = new LocationInfo();
+            newTarget.setLocation(request.getTargetLocation());
+            newTarget.setQuantity(request.getQuantity());
+            newTarget.setCreatedAt(new Date());
+            product.getLocations().add(newTarget);
+            log.info("创建新目标位置 {}: {}", request.getTargetLocation(), request.getQuantity());
+        }
+
+        product.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
         recalculateFinishedProductQuantity(product);
 
-        FinishedProduct saved = saveExistingFinishedProduct(product);
+        FinishedProduct saved = finishedProductRepository.save(product);
 
         log.info("跨库移动完成 - 成品ID: {}, 新总量: {}, 剩余位置数: {}",
                 saved.getId(), saved.getQuantity(),
@@ -1246,12 +966,16 @@ public class InventoryServiceImpl implements InventoryService {
             }
             totalOnlyMaterial.setQuantity((totalOnlyMaterial.getQuantity() != null ? totalOnlyMaterial.getQuantity() : 0) - quantity);
 
-            saveSystemInventoryRecord(
-                    "RAW_MATERIAL",
-                    materialId,
-                    totalOnlyMaterial.getName(),
-                    quantity,
-                    reason + " [FIFO:TOTAL(" + quantity + ")]");
+            InventoryRecord record = new InventoryRecord();
+            record.setInventoryType("OUT");
+            record.setItemType("RAW_MATERIAL");
+            record.setItemId(materialId);
+            record.setItemName(totalOnlyMaterial.getName());
+            record.setQuantity(-quantity);
+            record.setOperator("SYSTEM");
+            record.setOperatorName("SYSTEM");
+            record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
+            inventoryRecordRepository.save(record);
 
             if (totalOnlyMaterial.getAlertThreshold() != null
                     && totalOnlyMaterial.getQuantity() <= totalOnlyMaterial.getAlertThreshold()) {
@@ -1260,26 +984,69 @@ public class InventoryServiceImpl implements InventoryService {
             }
             return;
         }
+        log.info("FIFO扣减原材料 - ID: {}, 扣减数量: {}, 原因: {}", materialId, quantity, reason);
 
-        String[] deductionLog = new String[1];
-        RawMaterial material = updateRawMaterialLocationsWithRetry(materialId, current -> {
-            if (current.getLocations() == null || current.getLocations().isEmpty()) {
-                throw new BusinessException("该原材料暂无存放位置记录，无法执行FIFO扣减");
-            }
-            deductionLog[0] = deductByFifo(current.getLocations(), quantity);
+        RawMaterial material = rawMaterialRepository.findById(materialId)
+                .orElseThrow(() -> new BusinessException("原材料不存在"));
+
+        if (material.getLocations() == null || material.getLocations().isEmpty()) {
+            throw new BusinessException("该原材料暂无存放位置记录，无法执行FIFO扣减");
+        }
+
+        List<LocationInfo> sortedLocations = new ArrayList<>(material.getLocations());
+        sortedLocations.sort((a, b) -> {
+            Date aTime = a.getCreatedAt() != null ? a.getCreatedAt() : new Date(0);
+            Date bTime = b.getCreatedAt() != null ? b.getCreatedAt() : new Date(0);
+            return aTime.compareTo(bTime);
         });
 
-        saveSystemInventoryRecord(
-                "RAW_MATERIAL",
-                materialId,
-                material.getName(),
-                quantity,
-                reason + " [FIFO:" + deductionLog[0] + "]");
+        int remaining = quantity;
+        StringBuilder deductionLog = new StringBuilder();
+
+        for (LocationInfo loc : sortedLocations) {
+            if (remaining <= 0) break;
+
+            int available = loc.getQuantity() != null ? loc.getQuantity() : 0;
+            if (available <= 0) continue;
+
+            int deduct = Math.min(available, remaining);
+            loc.setQuantity(available - deduct);
+            remaining -= deduct;
+
+            log.info("FIFO扣减 - 位置: {}, 原库存: {}, 扣减: {}, 剩余: {}",
+                    loc.getLocation(), available, deduct, loc.getQuantity());
+            deductionLog.append(loc.getLocation()).append("(").append(deduct).append(")");
+        }
+
+        if (remaining > 0) {
+            throw new BusinessException(String.format(
+                    "FIFO扣减失败：位置总库存不足，需扣减 %d，实际可扣减 %d",
+                    quantity, quantity - remaining));
+        }
+
+        material.getLocations().removeIf(l -> l.getQuantity() <= 0);
+
+        recalculateRawMaterialQuantity(material);
+        rawMaterialRepository.save(material);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType("RAW_MATERIAL");
+        record.setItemId(materialId);
+        record.setItemName(material.getName());
+        record.setQuantity(-quantity);
+        record.setOperator("SYSTEM");
+        record.setOperatorName("系统自动");
+        record.setReason(reason + " [FIFO:" + deductionLog + "]");
+        inventoryRecordRepository.save(record);
 
         if (material.getAlertThreshold() != null && material.getQuantity() <= material.getAlertThreshold()) {
             createAlertIfNeeded("RAW_MATERIAL", material.getId(), material.getName(),
                     material.getQuantity(), material.getAlertThreshold());
         }
+
+        log.info("FIFO扣减完成 - 原材料ID: {}, 新总量: {}, 扣减详情: {}",
+                material.getId(), material.getQuantity(), deductionLog);
     }
 
     @Override
@@ -1294,12 +1061,16 @@ public class InventoryServiceImpl implements InventoryService {
             int available = totalOnlyProduct.getQuantity() != null ? totalOnlyProduct.getQuantity() : 0;
             totalOnlyProduct.setQuantity(available - quantity);
 
-            saveSystemInventoryRecord(
-                    "FINISHED_PRODUCT",
-                    finishedProductId,
-                    totalOnlyProduct.getName(),
-                    quantity,
-                    reason + " [FIFO:TOTAL(" + quantity + ")]");
+            InventoryRecord record = new InventoryRecord();
+            record.setInventoryType("OUT");
+            record.setItemType("FINISHED_PRODUCT");
+            record.setItemId(finishedProductId);
+            record.setItemName(totalOnlyProduct.getName());
+            record.setQuantity(-quantity);
+            record.setOperator("SYSTEM");
+            record.setOperatorName("SYSTEM");
+            record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
+            inventoryRecordRepository.save(record);
 
             if (totalOnlyProduct.getAlertThreshold() != null
                     && totalOnlyProduct.getQuantity() <= totalOnlyProduct.getAlertThreshold()) {
@@ -1308,25 +1079,81 @@ public class InventoryServiceImpl implements InventoryService {
             }
             return;
         }
+        log.info("FIFO扣减成品 - ID: {}, 扣减数量: {}, 原因: {}", finishedProductId, quantity, reason);
 
-        String[] deductionLog = new String[1];
-        FinishedProduct product = updateFinishedProductLocationsWithRetry(finishedProductId, current -> {
-            if (current.getLocations() == null || current.getLocations().isEmpty()) {
-                throw new BusinessException("该成品暂无存放位置记录，无法执行FIFO扣减");
+        FinishedProduct product = finishedProductRepository.findById(finishedProductId)
+                .orElseThrow(() -> new BusinessException("成品不存在"));
+
+        boolean hasLocationInventory = product.getLocations() != null && !product.getLocations().isEmpty();
+        StringBuilder deductionLog = new StringBuilder();
+        if (!hasLocationInventory) {
+            int available = product.getQuantity() != null ? product.getQuantity() : 0;
+            if (available < quantity) {
+                throw new BusinessException(String.format(
+                        "FIFO扣减失败：成品库存不足，需扣减 %d，实际可扣减 %d",
+                        quantity, available));
             }
-            deductionLog[0] = deductByFifo(current.getLocations(), quantity);
-        });
+            product.setQuantity(available - quantity);
+            deductionLog.append("总库存(").append(quantity).append(")");
+        } else {
+            List<LocationInfo> sortedLocations = new ArrayList<>(product.getLocations());
+            sortedLocations.sort((a, b) -> {
+                Date aTime = a.getCreatedAt() != null ? a.getCreatedAt() : new Date(0);
+                Date bTime = b.getCreatedAt() != null ? b.getCreatedAt() : new Date(0);
+                return aTime.compareTo(bTime);
+            });
 
-        saveSystemInventoryRecord(
-                "FINISHED_PRODUCT",
-                finishedProductId,
-                product.getName(),
-                quantity,
-                reason + " [FIFO:" + deductionLog[0] + "]");
+            int remaining = quantity;
+            for (LocationInfo loc : sortedLocations) {
+                if (remaining <= 0) {
+                    break;
+                }
+
+                int available = loc.getQuantity() != null ? loc.getQuantity() : 0;
+                if (available <= 0) {
+                    continue;
+                }
+
+                int deduct = Math.min(available, remaining);
+                loc.setQuantity(available - deduct);
+                remaining -= deduct;
+
+                log.info("FIFO扣减成品 - 位置: {}, 原库存: {}, 扣减: {}, 剩余: {}",
+                        loc.getLocation(), available, deduct, loc.getQuantity());
+                deductionLog.append(loc.getLocation()).append("(").append(deduct).append(")");
+            }
+
+            if (remaining > 0) {
+                throw new BusinessException(String.format(
+                        "FIFO扣减失败：位置总库存不足，需扣减 %d，实际可扣减 %d",
+                        quantity, quantity - remaining));
+            }
+
+            product.getLocations().removeIf(l -> l.getQuantity() == null || l.getQuantity() <= 0);
+        }
+
+        if (hasLocationInventory) {
+            recalculateFinishedProductQuantity(product);
+        }
+        finishedProductRepository.save(product);
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType("FINISHED_PRODUCT");
+        record.setItemId(finishedProductId);
+        record.setItemName(product.getName());
+        record.setQuantity(-quantity);
+        record.setOperator("SYSTEM");
+        record.setOperatorName("系统自动");
+        record.setReason(reason + " [FIFO:" + deductionLog + "]");
+        inventoryRecordRepository.save(record);
 
         if (product.getAlertThreshold() != null && product.getQuantity() <= product.getAlertThreshold()) {
             createAlertIfNeeded("FINISHED_PRODUCT", product.getId(), product.getName(),
                     product.getQuantity(), product.getAlertThreshold());
         }
+
+        log.info("FIFO扣减成品完成 - 成品ID: {}, 新总量: {}, 扣减详情: {}",
+                product.getId(), product.getQuantity(), deductionLog);
     }
 }

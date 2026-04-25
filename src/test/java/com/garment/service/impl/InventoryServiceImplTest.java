@@ -1,10 +1,6 @@
 package com.garment.service.impl;
 
-import com.garment.dto.FinishedProductCreateRequest;
-import com.garment.dto.FinishedProductUpdateRequest;
 import com.garment.dto.FinishedProductVO;
-import com.garment.dto.InventoryRecordVO;
-import com.garment.dto.RawMaterialUpdateRequest;
 import com.garment.dto.StockInOutRequest;
 import com.garment.exception.BusinessException;
 import com.garment.model.FinishedProduct;
@@ -28,8 +24,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DuplicateKeyException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
@@ -76,94 +70,6 @@ class InventoryServiceImplTest {
 
     @InjectMocks
     private InventoryServiceImpl inventoryService;
-
-    @Test
-    void createFinishedProductShouldPersistBatchNo() {
-        FinishedProductCreateRequest request = new FinishedProductCreateRequest();
-        request.setBatchNo("FP-20260424-001");
-        request.setName("牛仔裤-u1");
-        request.setCategory("下装");
-        request.setUnit("件");
-        request.setQuantity(10);
-
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        FinishedProductVO result = inventoryService.createFinishedProduct(request);
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-        assertThat(productCaptor.getAllValues())
-                .anySatisfy(product -> assertThat(product.getBatchNo()).isEqualTo("FP-20260424-001"));
-        assertThat(result.getBatchNo()).isEqualTo("FP-20260424-001");
-    }
-
-    @Test
-    void createFinishedProductShouldPersistProductCode() {
-        FinishedProductCreateRequest request = new FinishedProductCreateRequest();
-        request.setBatchNo("FP-20260424-003");
-        request.setName("Jeans");
-        request.setProductCode("P001");
-        request.setUnit("PCS");
-
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        FinishedProductVO result = inventoryService.createFinishedProduct(request);
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-        assertThat(productCaptor.getAllValues())
-                .anySatisfy(product -> assertThat(product.getProductCode()).isEqualTo("P001"));
-        assertThat(result.getProductCode()).isEqualTo("P001");
-    }
-
-    @Test
-    void createFinishedProductShouldInitializeLocationAndQuantityFromRequest() {
-        FinishedProductCreateRequest request = new FinishedProductCreateRequest();
-        request.setBatchNo("FP-20260424-002");
-        request.setName("Jeans");
-        request.setCategory("BOTTOM");
-        request.setUnit("PCS");
-        request.setQuantity(20);
-        request.setLocation("A-01");
-
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        FinishedProductVO result = inventoryService.createFinishedProduct(request);
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-        assertThat(productCaptor.getAllValues())
-                .anySatisfy(product -> {
-                    assertThat(product.getQuantity()).isEqualTo(20);
-                    assertThat(product.getLocations()).hasSize(1);
-                    assertThat(product.getLocations().get(0).getLocation()).isEqualTo("A-01");
-                    assertThat(product.getLocations().get(0).getQuantity()).isEqualTo(20);
-                });
-        assertThat(result.getQuantity()).isEqualTo(20);
-        assertThat(result.getLocations()).hasSize(1);
-        assertThat(result.getLocations().get(0).getLocation()).isEqualTo("A-01");
-        assertThat(result.getLocations().get(0).getQuantity()).isEqualTo(20);
-    }
-
-    @Test
-    void updateFinishedProductShouldPersistBatchNo() {
-        FinishedProduct product = buildFinishedProduct("finished-update-batch", "OLD-BATCH", "牛仔裤-u1", "U1", "蓝色", "L");
-
-        FinishedProductUpdateRequest request = new FinishedProductUpdateRequest();
-        request.setBatchNo("NEW-BATCH-001");
-        request.setName("牛仔裤-u1");
-
-        when(finishedProductRepository.findById("finished-update-batch")).thenReturn(Optional.of(product));
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        FinishedProductVO result = inventoryService.updateFinishedProduct("finished-update-batch", request);
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-        assertThat(productCaptor.getAllValues())
-                .anySatisfy(saved -> assertThat(saved.getBatchNo()).isEqualTo("NEW-BATCH-001"));
-        assertThat(result.getBatchNo()).isEqualTo("NEW-BATCH-001");
-    }
 
     @Test
     void stockInShouldCreateNewFinishedProductWhenBatchColorOrSizeDiffers() {
@@ -293,42 +199,6 @@ class InventoryServiceImplTest {
     }
 
     @Test
-    void stockInShouldAllowExistingFinishedProductWhenPlanIsMissing() {
-        FinishedProduct existing = buildFinishedProduct("finished-existing-direct", "PC-20260424-5147", "牛仔裤-u1", "U1", "蓝色", "L");
-        existing.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("V-08", 100, new Date())
-        )));
-        existing.setQuantity(100);
-
-        User operator = new User();
-        operator.setId("admin-direct");
-        operator.setRealName("admin");
-
-        StockInOutRequest request = new StockInOutRequest();
-        request.setItemType("FINISHED_PRODUCT");
-        request.setItemId("finished-existing-direct");
-        request.setQuantity(1);
-        request.setReason("manual stock in | 位置:V-08");
-
-        when(productionPlanRepository.findById("finished-existing-direct")).thenReturn(Optional.empty());
-        when(finishedProductRepository.findById("finished-existing-direct")).thenReturn(Optional.of(existing));
-        when(userRepository.findById("admin-direct")).thenReturn(Optional.of(operator));
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.stockIn(request, "admin-direct");
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-
-        FinishedProduct latestSaved = productCaptor.getAllValues().get(productCaptor.getAllValues().size() - 1);
-        assertThat(latestSaved.getId()).isEqualTo("finished-existing-direct");
-        assertThat(latestSaved.getQuantity()).isEqualTo(101);
-        assertThat(latestSaved.getLocations()).extracting(LocationInfo::getQuantity).containsExactly(101);
-        verify(productionPlanRepository, never()).save(any(ProductionPlan.class));
-    }
-
-    @Test
     void getFinishedProductListShouldUseCurrentProductDefinitionUnitCostAndFallbackToNullWhenMissing() {
         FinishedProduct matchedProduct = buildFinishedProduct("finished-10", "BATCH-010", "T恤", "Y1", "红色", "M");
         matchedProduct.setQuantity(20);
@@ -408,128 +278,6 @@ class InventoryServiceImplTest {
 
         verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-stock-in", 5, null);
         verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
-    }
-
-    @Test
-    void stockInShouldInitializeLegacyRawMaterialVersionBeforeSavingLocations() {
-        RawMaterial material = new RawMaterial();
-        material.setId("raw-stock-location");
-        material.setName("Cotton");
-        material.setQuantity(10);
-        material.setVersion(null);
-        material.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date())
-        )));
-
-        User operator = new User();
-        operator.setId("warehouse-in-location");
-        operator.setRealName("warehouse user");
-
-        StockInOutRequest request = new StockInOutRequest();
-        request.setItemType("RAW_MATERIAL");
-        request.setItemId("raw-stock-location");
-        request.setQuantity(5);
-        request.setReason("manual stock in | 位置:H-03");
-
-        when(rawMaterialRepository.findById("raw-stock-location")).thenReturn(Optional.of(material));
-        when(userRepository.findById("warehouse-in-location")).thenReturn(Optional.of(operator));
-        when(mongoAtomicOpsService.initializeRawMaterialVersionIfMissing("raw-stock-location")).thenReturn(true);
-        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> {
-            RawMaterial saved = invocation.getArgument(0);
-            if (saved.getVersion() == null) {
-                throw new DuplicateKeyException("legacy raw material missing version");
-            }
-            return saved;
-        });
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.stockIn(request, "warehouse-in-location");
-
-        verify(mongoAtomicOpsService).initializeRawMaterialVersionIfMissing("raw-stock-location");
-        verify(rawMaterialRepository).save(any(RawMaterial.class));
-        assertThat(material.getVersion()).isEqualTo(0L);
-        assertThat(material.getQuantity()).isEqualTo(15);
-        assertThat(material.getLocations()).extracting(LocationInfo::getLocation)
-                .containsExactlyInAnyOrder("A-01", "H-03");
-    }
-
-    @Test
-    void stockInShouldSurfaceRawMaterialLocationOptimisticLockConflictAsBusinessException() {
-        RawMaterial material = new RawMaterial();
-        material.setId("raw-stock-location-conflict");
-        material.setName("Cotton");
-        material.setQuantity(10);
-        material.setVersion(3L);
-        material.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date())
-        )));
-
-        StockInOutRequest request = new StockInOutRequest();
-        request.setItemType("RAW_MATERIAL");
-        request.setItemId("raw-stock-location-conflict");
-        request.setQuantity(5);
-        request.setReason("manual stock in | 位置:H-03");
-
-        when(rawMaterialRepository.findById("raw-stock-location-conflict")).thenReturn(Optional.of(material));
-        when(rawMaterialRepository.save(any(RawMaterial.class)))
-                .thenThrow(new OptimisticLockingFailureException("raw material location conflict"));
-
-        assertThatThrownBy(() -> inventoryService.stockIn(request, "warehouse-in-conflict"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("库存已被其他操作更新")
-                .hasMessageContaining("刷新后重试");
-
-        verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
-    }
-
-    @Test
-    void stockInShouldRetryRawMaterialLocationSaveAfterOptimisticLockConflict() {
-        RawMaterial stale = new RawMaterial();
-        stale.setId("raw-stock-location-retry");
-        stale.setName("Cotton");
-        stale.setQuantity(10);
-        stale.setVersion(1L);
-        stale.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date(1000L))
-        )));
-
-        RawMaterial refreshed = new RawMaterial();
-        refreshed.setId("raw-stock-location-retry");
-        refreshed.setName("Cotton");
-        refreshed.setQuantity(12);
-        refreshed.setVersion(2L);
-        refreshed.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 12, new Date(1000L))
-        )));
-
-        User operator = new User();
-        operator.setId("warehouse-in-retry");
-        operator.setRealName("warehouse user");
-
-        StockInOutRequest request = new StockInOutRequest();
-        request.setItemType("RAW_MATERIAL");
-        request.setItemId("raw-stock-location-retry");
-        request.setQuantity(5);
-        request.setReason("manual stock in | 浣嶇疆:A-01");
-
-        when(rawMaterialRepository.findById("raw-stock-location-retry"))
-                .thenReturn(Optional.of(stale))
-                .thenReturn(Optional.of(refreshed));
-        when(userRepository.findById("warehouse-in-retry")).thenReturn(Optional.of(operator));
-        when(rawMaterialRepository.save(any(RawMaterial.class)))
-                .thenThrow(new OptimisticLockingFailureException("raw material location conflict"))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        InventoryRecordVO result = inventoryService.stockIn(request, "warehouse-in-retry");
-
-        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
-        verify(rawMaterialRepository, atLeastOnce()).save(materialCaptor.capture());
-        RawMaterial latestSaved = materialCaptor.getAllValues().get(materialCaptor.getAllValues().size() - 1);
-        assertThat(result.getQuantity()).isEqualTo(5);
-        assertThat(latestSaved.getQuantity()).isEqualTo(17);
-        assertThat(latestSaved.getLocations()).extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("A-01", 17));
     }
 
     @Test
@@ -620,88 +368,6 @@ class InventoryServiceImplTest {
     }
 
     @Test
-    void stockOutShouldRetryRawMaterialLocationSaveAfterOptimisticLockConflict() {
-        RawMaterial stale = new RawMaterial();
-        stale.setId("raw-stock-out-location-retry");
-        stale.setName("Cotton");
-        stale.setQuantity(10);
-        stale.setVersion(1L);
-        stale.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date(1000L))
-        )));
-
-        RawMaterial refreshed = new RawMaterial();
-        refreshed.setId("raw-stock-out-location-retry");
-        refreshed.setName("Cotton");
-        refreshed.setQuantity(12);
-        refreshed.setVersion(2L);
-        refreshed.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 12, new Date(1000L))
-        )));
-
-        User operator = new User();
-        operator.setId("warehouse-out-retry");
-        operator.setRealName("warehouse user");
-
-        StockInOutRequest request = new StockInOutRequest();
-        request.setItemType("RAW_MATERIAL");
-        request.setItemId("raw-stock-out-location-retry");
-        request.setQuantity(5);
-        request.setReason("manual stock out | 浣嶇疆:A-01");
-
-        when(rawMaterialRepository.findById("raw-stock-out-location-retry"))
-                .thenReturn(Optional.of(stale))
-                .thenReturn(Optional.of(refreshed));
-        when(userRepository.findById("warehouse-out-retry")).thenReturn(Optional.of(operator));
-        when(rawMaterialRepository.save(any(RawMaterial.class)))
-                .thenThrow(new OptimisticLockingFailureException("raw material location conflict"))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.stockOut(request, "warehouse-out-retry");
-
-        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
-        verify(rawMaterialRepository, atLeastOnce()).save(materialCaptor.capture());
-        RawMaterial latestSaved = materialCaptor.getAllValues().get(materialCaptor.getAllValues().size() - 1);
-        assertThat(latestSaved.getQuantity()).isEqualTo(7);
-        assertThat(latestSaved.getLocations()).extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("A-01", 7));
-    }
-
-    @Test
-    void updateRawMaterialShouldNotResetMultiLocationQuantitiesWhenLegacyLocationFieldIsPresent() {
-        RawMaterial material = new RawMaterial();
-        material.setId("raw-update-location");
-        material.setName("Zipper");
-        material.setQuantity(1000);
-        material.setLocations(new ArrayList<>(Arrays.asList(
-                new LocationInfo("H-03", 700, new Date(1000L)),
-                new LocationInfo("A-08", 300, new Date(2000L))
-        )));
-
-        RawMaterialUpdateRequest request = new RawMaterialUpdateRequest();
-        request.setName("Zipper Updated");
-        request.setLocation("H-03");
-        request.setDescription("updated");
-
-        when(rawMaterialRepository.findById("raw-update-location")).thenReturn(Optional.of(material));
-        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.updateRawMaterial("raw-update-location", request);
-
-        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
-        verify(rawMaterialRepository, atLeastOnce()).save(materialCaptor.capture());
-        RawMaterial saved = materialCaptor.getAllValues().get(materialCaptor.getAllValues().size() - 1);
-        assertThat(saved.getName()).isEqualTo("Zipper Updated");
-        assertThat(saved.getLocations())
-                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("H-03", 700),
-                        org.assertj.core.groups.Tuple.tuple("A-08", 300)
-                );
-    }
-
-    @Test
     void fifoDeductFinishedProductShouldConsumeOldestLocationsFirst() {
         FinishedProduct product = buildFinishedProduct("finished-30", "BATCH-030", "T-shirt", "Y1", "white", "M");
         product.setAlertThreshold(1);
@@ -730,35 +396,6 @@ class InventoryServiceImplTest {
         verify(inventoryRecordRepository).save(recordCaptor.capture());
         assertThat(recordCaptor.getValue().getReason()).contains("订单发货-ORD001");
         assertThat(recordCaptor.getValue().getReason()).contains("FIFO:A-01(2)B-01(1)");
-    }
-
-    @Test
-    void fifoDeductFinishedProductShouldInitializeLegacyVersionBeforeSavingLocations() {
-        FinishedProduct product = buildFinishedProduct("finished-legacy-version", "BATCH-033", "Jeans", "N1", "red", "XL");
-        product.setQuantity(10);
-        product.setVersion(null);
-        product.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("H01", 10, new Date(1000L))
-        )));
-
-        when(finishedProductRepository.findById("finished-legacy-version")).thenReturn(Optional.of(product));
-        when(mongoAtomicOpsService.initializeFinishedProductVersionIfMissing("finished-legacy-version")).thenReturn(true);
-        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> {
-            FinishedProduct saved = invocation.getArgument(0);
-            if (saved.getVersion() == null) {
-                throw new DuplicateKeyException("legacy finished product missing version");
-            }
-            return saved;
-        });
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.fifoDeductFinishedProduct("finished-legacy-version", 10, "订单发货-ORD003");
-
-        verify(mongoAtomicOpsService).initializeFinishedProductVersionIfMissing("finished-legacy-version");
-        verify(finishedProductRepository).save(any(FinishedProduct.class));
-        assertThat(product.getVersion()).isEqualTo(0L);
-        assertThat(product.getQuantity()).isEqualTo(0);
-        assertThat(product.getLocations()).isEmpty();
     }
 
     @Test
@@ -799,44 +436,6 @@ class InventoryServiceImplTest {
     }
 
     @Test
-    void fifoDeductRawMaterialShouldRetryLocationSaveAfterOptimisticLockConflict() {
-        RawMaterial stale = new RawMaterial();
-        stale.setId("raw-fifo-location-retry");
-        stale.setName("Cotton");
-        stale.setQuantity(8);
-        stale.setVersion(1L);
-        stale.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 8, new Date(1000L))
-        )));
-
-        RawMaterial refreshed = new RawMaterial();
-        refreshed.setId("raw-fifo-location-retry");
-        refreshed.setName("Cotton");
-        refreshed.setQuantity(10);
-        refreshed.setVersion(2L);
-        refreshed.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date(1000L))
-        )));
-
-        when(rawMaterialRepository.findById("raw-fifo-location-retry"))
-                .thenReturn(Optional.of(stale))
-                .thenReturn(Optional.of(refreshed));
-        when(rawMaterialRepository.save(any(RawMaterial.class)))
-                .thenThrow(new OptimisticLockingFailureException("raw material fifo conflict"))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.fifoDeductRawMaterial("raw-fifo-location-retry", 3, "ship raw");
-
-        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
-        verify(rawMaterialRepository, atLeastOnce()).save(materialCaptor.capture());
-        RawMaterial latestSaved = materialCaptor.getAllValues().get(materialCaptor.getAllValues().size() - 1);
-        assertThat(latestSaved.getQuantity()).isEqualTo(7);
-        assertThat(latestSaved.getLocations()).extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("A-01", 7));
-    }
-
-    @Test
     void fifoDeductFinishedProductShouldFailWhenAtomicTotalQuantityDeductionMisses() {
         FinishedProduct product = buildFinishedProduct("finished-atomic-miss", "BATCH-032", "Hoodie", "W1", "black", "XL");
         product.setQuantity(2);
@@ -851,40 +450,6 @@ class InventoryServiceImplTest {
 
         verify(finishedProductRepository, never()).save(any(FinishedProduct.class));
         verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
-    }
-
-    @Test
-    void fifoDeductFinishedProductShouldRetryLocationSaveAfterOptimisticLockConflict() {
-        FinishedProduct stale = buildFinishedProduct("finished-fifo-location-retry", "BATCH-034", "Hoodie", "W1", "black", "XL");
-        stale.setQuantity(8);
-        stale.setVersion(1L);
-        stale.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 8, new Date(1000L))
-        )));
-
-        FinishedProduct refreshed = buildFinishedProduct("finished-fifo-location-retry", "BATCH-034", "Hoodie", "W1", "black", "XL");
-        refreshed.setQuantity(10);
-        refreshed.setVersion(2L);
-        refreshed.setLocations(new ArrayList<>(Collections.singletonList(
-                new LocationInfo("A-01", 10, new Date(1000L))
-        )));
-
-        when(finishedProductRepository.findById("finished-fifo-location-retry"))
-                .thenReturn(Optional.of(stale))
-                .thenReturn(Optional.of(refreshed));
-        when(finishedProductRepository.save(any(FinishedProduct.class)))
-                .thenThrow(new OptimisticLockingFailureException("finished product fifo conflict"))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        inventoryService.fifoDeductFinishedProduct("finished-fifo-location-retry", 3, "ship");
-
-        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
-        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
-        FinishedProduct latestSaved = productCaptor.getAllValues().get(productCaptor.getAllValues().size() - 1);
-        assertThat(latestSaved.getQuantity()).isEqualTo(7);
-        assertThat(latestSaved.getLocations()).extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("A-01", 7));
     }
 
     @Test
