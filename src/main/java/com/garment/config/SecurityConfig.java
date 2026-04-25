@@ -55,7 +55,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                         response.setCharacterEncoding("UTF-8");
                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        Result<Void> result = Result.error(401, "未登录或token已过期");
+                        Result<Void> result = Result.error(401, "未登录或登录已过期");
                         response.getWriter().write(objectMapper.writeValueAsString(result));
                     })
                     .accessDeniedHandler((request, response, accessDeniedException) -> {

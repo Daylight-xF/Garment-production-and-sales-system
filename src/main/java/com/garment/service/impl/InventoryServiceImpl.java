@@ -8,6 +8,7 @@ import com.garment.service.InventoryService;
 import com.garment.service.support.MongoAtomicOpsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -341,7 +342,7 @@ public class InventoryServiceImpl implements InventoryService {
             if (!"COMPLETED".equals(plan.getStatus())) {
                 log.error("生产计划未完成，无法入库 - 计划ID: {}, 当前状态: {}",
                         plan.getId(), plan.getStatus());
-                throw new BusinessException("生产计划尚未完成，无法入库。当前状态: " + plan.getStatus());
+                throw new BusinessException("生产计划尚未完成，无法入库。当前状态：" + getPlanStatusText(plan.getStatus()));
             }
 
             FinishedProduct product = findOrCreateFinishedProduct(plan);
@@ -370,8 +371,9 @@ public class InventoryServiceImpl implements InventoryService {
                     itemName, product.getId(), request.getQuantity(), oldQuantity, product.getQuantity(),
                     plan.getStockedInQuantity(), plan.getCompletedQuantity());
         } else {
-            log.error("无效的物品类型: {}", request.getItemType());
-            throw new BusinessException("无效的物品类型: " + request.getItemType());
+            String itemTypeText = getItemTypeText(request.getItemType());
+            log.error("无效的物品类型: {}", itemTypeText);
+            throw new BusinessException("无效的物品类型：" + itemTypeText);
         }
 
         String operatorName = getOperatorName(operatorId);
@@ -574,9 +576,14 @@ public class InventoryServiceImpl implements InventoryService {
         alert.setStatus("HANDLED");
         alert.setHandleTime(new Date());
         alert.setHandleBy(request.getHandleBy());
+        alert.setOpenAlertKey(null);
 
-        InventoryAlert saved = inventoryAlertRepository.save(alert);
-        return convertToInventoryAlertVO(saved);
+        try {
+            InventoryAlert saved = inventoryAlertRepository.save(alert);
+            return convertToInventoryAlertVO(saved);
+        } catch (OptimisticLockingFailureException ex) {
+            throw new BusinessException("预警状态已变更，请刷新后重试");
+        }
     }
 
     @Override
@@ -601,21 +608,18 @@ public class InventoryServiceImpl implements InventoryService {
 
     private void createAlertIfNeeded(String itemType, String itemId, String itemName,
                                       Integer currentQuantity, Integer threshold) {
-        List<InventoryAlert> existing = inventoryAlertRepository.findAll();
-        boolean hasPending = existing.stream()
-                .anyMatch(a -> itemType.equals(a.getItemType())
-                        && itemId.equals(a.getItemId())
-                        && "PENDING".equals(a.getStatus()));
-
-        if (!hasPending) {
-            InventoryAlert alert = new InventoryAlert();
-            alert.setItemType(itemType);
-            alert.setItemId(itemId);
-            alert.setItemName(itemName);
-            alert.setCurrentQuantity(currentQuantity);
-            alert.setThreshold(threshold);
-            alert.setStatus("PENDING");
+        InventoryAlert alert = new InventoryAlert();
+        alert.setItemType(itemType);
+        alert.setItemId(itemId);
+        alert.setItemName(itemName);
+        alert.setCurrentQuantity(currentQuantity);
+        alert.setThreshold(threshold);
+        alert.setStatus("PENDING");
+        alert.setOpenAlertKey(itemType + ":" + itemId);
+        try {
             inventoryAlertRepository.save(alert);
+        } catch (DuplicateKeyException ex) {
+            log.debug("预警已存在，忽略重复创建 - itemType: {}, itemId: {}", itemType, itemId);
         }
     }
 
@@ -626,12 +630,9 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     private FinishedProduct findOrCreateFinishedProduct(ProductionPlan plan) {
-        List<FinishedProduct> existing = finishedProductRepository.findAll().stream()
-                .filter(product -> matchesFinishedProductIdentity(product, plan))
-                .collect(Collectors.toList());
-
-        if (!existing.isEmpty()) {
-            return existing.get(0);
+        FinishedProduct existing = findMatchingFinishedProduct(plan);
+        if (existing != null) {
+            return existing;
         }
 
         FinishedProduct newProduct = new FinishedProduct();
@@ -645,7 +646,28 @@ public class InventoryServiceImpl implements InventoryService {
         newProduct.setUnit(plan.getUnit());
         newProduct.setDescription("自动创建 - 来源: " + plan.getBatchNo());
 
-        return finishedProductRepository.save(newProduct);
+        try {
+            return finishedProductRepository.save(newProduct);
+        } catch (DuplicateKeyException ex) {
+            FinishedProduct concurrentProduct = findMatchingFinishedProduct(plan);
+            if (concurrentProduct != null) {
+                return concurrentProduct;
+            }
+            throw ex;
+        }
+    }
+
+    private FinishedProduct findMatchingFinishedProduct(ProductionPlan plan) {
+        return finishedProductRepository.findFirstByProductCodeAndNameAndColorAndSizeAndBatchNo(
+                        plan.getProductCode(),
+                        plan.getProductName(),
+                        plan.getColor(),
+                        plan.getSize(),
+                        plan.getBatchNo())
+                .orElseGet(() -> finishedProductRepository.findAll().stream()
+                        .filter(product -> matchesFinishedProductIdentity(product, plan))
+                        .findFirst()
+                        .orElse(null));
     }
 
     private boolean matchesFinishedProductIdentity(FinishedProduct product, ProductionPlan plan) {
@@ -1081,7 +1103,7 @@ public class InventoryServiceImpl implements InventoryService {
             record.setItemName(totalOnlyMaterial.getName());
             record.setQuantity(-quantity);
             record.setOperator("SYSTEM");
-            record.setOperatorName("SYSTEM");
+            record.setOperatorName("系统自动");
             record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
             inventoryRecordRepository.save(record);
 
@@ -1176,7 +1198,7 @@ public class InventoryServiceImpl implements InventoryService {
             record.setItemName(totalOnlyProduct.getName());
             record.setQuantity(-quantity);
             record.setOperator("SYSTEM");
-            record.setOperatorName("SYSTEM");
+            record.setOperatorName("系统自动");
             record.setReason(reason + " [FIFO:TOTAL(" + quantity + ")]");
             inventoryRecordRepository.save(record);
 
@@ -1419,5 +1441,39 @@ public class InventoryServiceImpl implements InventoryService {
         restoredLocation.setQuantity(locationDeduction.getQuantity());
         restoredLocation.setCreatedAt(locationDeduction.getCreatedAt() != null ? locationDeduction.getCreatedAt() : new Date());
         material.getLocations().add(restoredLocation);
+    }
+
+    private String getPlanStatusText(String status) {
+        if (!StringUtils.hasText(status)) {
+            return "未知状态";
+        }
+        switch (status) {
+            case "PENDING":
+                return "待审批";
+            case "APPROVED":
+                return "已审批";
+            case "IN_PROGRESS":
+                return "进行中";
+            case "COMPLETED":
+                return "已完成";
+            case "CANCELLED":
+                return "已取消";
+            default:
+                return status;
+        }
+    }
+
+    private String getItemTypeText(String itemType) {
+        if (!StringUtils.hasText(itemType)) {
+            return "未知类型";
+        }
+        switch (itemType) {
+            case "RAW_MATERIAL":
+                return "原材料";
+            case "FINISHED_PRODUCT":
+                return "成品";
+            default:
+                return itemType;
+        }
     }
 }

@@ -74,7 +74,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button v-if="row.status !== 'COMPLETED' && !canCompletePlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="row.status !== 'COMPLETED' && row.status !== 'CANCELLED' && !canCompletePlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status === 'PENDING'"
               type="success"

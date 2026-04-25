@@ -10,6 +10,7 @@ import com.garment.repository.RoleRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.AuthService;
 import com.garment.util.JwtUtil;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -54,7 +55,11 @@ public class AuthServiceImpl implements AuthService {
         user.setRoles(Collections.singletonList(inactiveRole.getId()));
         user.setStatus(1);
 
-        userRepository.save(user);
+        try {
+            userRepository.save(user);
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException("用户名已存在");
+        }
     }
 
     @Override

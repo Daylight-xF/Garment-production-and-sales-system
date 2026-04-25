@@ -11,6 +11,7 @@ import com.garment.model.User;
 import com.garment.repository.RoleRepository;
 import com.garment.repository.UserRepository;
 import com.garment.service.UserService;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -129,7 +130,12 @@ public class UserServiceImpl implements UserService {
         user.setRoles(roleIds);
         user.setStatus(1);
 
-        User saved = userRepository.save(user);
+        User saved;
+        try {
+            saved = userRepository.save(user);
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException("用户名已存在");
+        }
         return convertToVO(saved);
     }
 

@@ -95,8 +95,28 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setMaterialsDeducted(!deductionReceipts.isEmpty());
         plan.setMaterialDeductionReceipts(deductionReceipts);
 
-        ProductionPlan saved = productionPlanRepository.save(plan);
-        return convertToVO(saved);
+        try {
+            ProductionPlan saved = productionPlanRepository.save(plan);
+            return convertToVO(saved);
+        } catch (RuntimeException ex) {
+            rollbackCreatedPlanMaterialDeductions(deductionReceipts, request.getBatchNo(), ex);
+            throw ex;
+        }
+    }
+
+    private void rollbackCreatedPlanMaterialDeductions(List<InventoryDeductionReceipt> deductionReceipts,
+                                                       String batchNo,
+                                                       RuntimeException originalEx) {
+        for (int i = deductionReceipts.size() - 1; i >= 0; i--) {
+            InventoryDeductionReceipt receipt = deductionReceipts.get(i);
+            try {
+                inventoryService.restoreInventoryDeduction(receipt, "生产计划-" + batchNo + "-创建回滚");
+            } catch (RuntimeException rollbackEx) {
+                IllegalStateException fatal = new IllegalStateException("生产计划创建失败，且原材料扣减回滚失败，请立即人工核对库存", rollbackEx);
+                fatal.addSuppressed(originalEx);
+                throw fatal;
+            }
+        }
     }
 
     private List<InventoryDeductionReceipt> checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String batchNo) {
@@ -436,8 +456,12 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     public PlanVO updatePlan(String id, PlanUpdateRequest request) {
         ProductionPlan plan = productionPlanRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("生产计划不存在"));
-        List<StockInOutRequest> rollbackRequests = new ArrayList<>();
+        MaterialAdjustmentResult adjustmentResult = MaterialAdjustmentResult.empty();
         List<TaskQuantitySnapshot> taskRollbackSnapshots = new ArrayList<>();
+
+        if ("CANCELLED".equals(plan.getStatus())) {
+            throw new BusinessException("已取消的生产计划不允许编辑");
+        }
 
         boolean isApproved = "APPROVED".equals(plan.getStatus());
 
@@ -468,7 +492,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             if (request.getQuantity() != null) {
                 int quantityDiff = request.getQuantity() - oldQuantity;
                 if (quantityDiff != 0) {
-                    rollbackRequests = adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
+                    adjustmentResult = adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
+                    plan.setMaterialDeductionReceipts(adjustmentResult.getUpdatedReceipts());
                     taskRollbackSnapshots = captureTaskQuantitySnapshots(plan.getId());
                     syncTaskPlanQuantities(taskRollbackSnapshots, plan.getId(), request.getQuantity());
                 }
@@ -498,7 +523,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             return convertToVO(saved);
         } catch (RuntimeException ex) {
             rollbackTaskPlanQuantities(taskRollbackSnapshots);
-            rollbackPlanInventoryAdjustments(rollbackRequests);
+            rollbackPlanInventoryAdjustments(adjustmentResult);
             throw ex;
         }
     }
@@ -522,20 +547,49 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
     }
 
-    private List<StockInOutRequest> adjustInventoryForQuantityChange(ProductionPlan plan, int oldQty, int newQty) {
+    private MaterialAdjustmentResult adjustInventoryForQuantityChange(ProductionPlan plan, int oldQty, int newQty) {
         ProductDefinition productDef = productDefinitionRepository.findById(plan.getProductDefinitionId()).orElse(null);
         if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
-            return new ArrayList<>();
+            return MaterialAdjustmentResult.empty();
         }
 
         int diff = newQty - oldQty;
+        List<InventoryDeductionReceipt> updatedReceipts = copyInventoryDeductionReceipts(plan.getMaterialDeductionReceipts());
+        List<InventoryDeductionReceipt> deductedReceipts = new ArrayList<>();
+        List<InventoryDeductionReceipt> restoredReceipts = new ArrayList<>();
         List<StockInOutRequest> rollbackRequests = new ArrayList<>();
-
-        List<InventoryDeductionReceipt> receipts = new ArrayList<>();
         for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
             double unitNeed = material.getQuantity();
-            double totalAdjustment = unitNeed * Math.abs(diff);
-            int adjustIntQty = (int) Math.round(totalAdjustment);
+            int adjustIntQty = (int) Math.round(unitNeed * Math.abs(diff));
+            if (adjustIntQty <= 0) {
+                continue;
+            }
+
+            if (shouldUseReceiptBasedQuantityAdjustment()) {
+                if (diff > 0) {
+                    InventoryDeductionReceipt receipt = inventoryService.fifoDeductRawMaterialWithReceipt(
+                            material.getMaterialId(),
+                            adjustIntQty,
+                            "生产计划-" + plan.getBatchNo() + "-数量调整(从" + oldQty + "增至" + newQty + ")-扣减");
+                    if (receipt != null) {
+                        deductedReceipts.add(receipt);
+                        updatedReceipts.add(receipt);
+                    }
+                } else {
+                    List<InventoryDeductionReceipt> materialRestoreReceipts = extractRestoreReceipts(
+                            updatedReceipts,
+                            material.getMaterialId(),
+                            material.getMaterialName(),
+                            adjustIntQty);
+                    for (InventoryDeductionReceipt restoreReceipt : materialRestoreReceipts) {
+                        inventoryService.restoreInventoryDeduction(
+                                restoreReceipt,
+                                "生产计划-" + plan.getBatchNo() + "-数量调整(从" + oldQty + "减至" + newQty + ")-返还");
+                    }
+                    restoredReceipts.addAll(materialRestoreReceipts);
+                }
+                continue;
+            }
 
             if (diff > 0) {
                 RawMaterial rawMaterial = rawMaterialRepository.findById(material.getMaterialId())
@@ -586,7 +640,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 rollbackRequests.add(rollbackRequest);
             }
         }
-        return rollbackRequests;
+        return new MaterialAdjustmentResult(updatedReceipts, deductedReceipts, restoredReceipts);
     }
 
     private void rollbackPlanInventoryAdjustments(List<StockInOutRequest> rollbackRequests) {
@@ -597,6 +651,188 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             } else {
                 inventoryService.stockOut(rollbackRequest, "system");
             }
+        }
+    }
+
+    private void rollbackPlanInventoryAdjustments(MaterialAdjustmentResult adjustmentResult) {
+        if (adjustmentResult == null) {
+            return;
+        }
+
+        for (int i = adjustmentResult.getRestoredReceipts().size() - 1; i >= 0; i--) {
+            InventoryDeductionReceipt restoredReceipt = adjustmentResult.getRestoredReceipts().get(i);
+            inventoryService.fifoDeductRawMaterialWithReceipt(
+                    restoredReceipt.getItemId(),
+                    restoredReceipt.getQuantity(),
+                    "生产计划-数量调整返还回滚");
+        }
+
+        for (int i = adjustmentResult.getDeductedReceipts().size() - 1; i >= 0; i--) {
+            InventoryDeductionReceipt deductedReceipt = adjustmentResult.getDeductedReceipts().get(i);
+            inventoryService.restoreInventoryDeduction(deductedReceipt, "生产计划-数量调整扣减回滚");
+        }
+    }
+
+    private boolean shouldUseReceiptBasedQuantityAdjustment() {
+        return true;
+    }
+
+    private List<InventoryDeductionReceipt> copyInventoryDeductionReceipts(List<InventoryDeductionReceipt> receipts) {
+        List<InventoryDeductionReceipt> copies = new ArrayList<>();
+        if (receipts == null) {
+            return copies;
+        }
+        for (InventoryDeductionReceipt receipt : receipts) {
+            if (receipt == null) {
+                continue;
+            }
+            copies.add(copyInventoryDeductionReceipt(receipt));
+        }
+        return copies;
+    }
+
+    private InventoryDeductionReceipt copyInventoryDeductionReceipt(InventoryDeductionReceipt receipt) {
+        return new InventoryDeductionReceipt(
+                receipt.getItemType(),
+                receipt.getItemId(),
+                receipt.getItemName(),
+                receipt.getQuantity(),
+                receipt.isTotalOnly(),
+                copyLocationDeductions(receipt.getLocationDeductions()));
+    }
+
+    private List<InventoryDeductionReceipt.LocationDeduction> copyLocationDeductions(
+            List<InventoryDeductionReceipt.LocationDeduction> deductions) {
+        List<InventoryDeductionReceipt.LocationDeduction> copies = new ArrayList<>();
+        if (deductions == null) {
+            return copies;
+        }
+        for (InventoryDeductionReceipt.LocationDeduction deduction : deductions) {
+            if (deduction == null) {
+                continue;
+            }
+            copies.add(new InventoryDeductionReceipt.LocationDeduction(
+                    deduction.getLocation(),
+                    deduction.getQuantity(),
+                    deduction.getCreatedAt()));
+        }
+        return copies;
+    }
+
+    private List<InventoryDeductionReceipt> extractRestoreReceipts(List<InventoryDeductionReceipt> updatedReceipts,
+                                                                   String itemId,
+                                                                   String itemName,
+                                                                   int quantityToRestore) {
+        int remaining = quantityToRestore;
+        List<InventoryDeductionReceipt> restoreReceipts = new ArrayList<>();
+
+        for (int i = updatedReceipts.size() - 1; i >= 0 && remaining > 0; i--) {
+            InventoryDeductionReceipt receipt = updatedReceipts.get(i);
+            if (receipt == null || !Objects.equals(itemId, receipt.getItemId())
+                    || receipt.getQuantity() == null || receipt.getQuantity() <= 0) {
+                continue;
+            }
+
+            InventoryDeductionReceipt extractedReceipt = extractPartialReceipt(receipt, remaining, itemName);
+            if (extractedReceipt == null || extractedReceipt.getQuantity() == null || extractedReceipt.getQuantity() <= 0) {
+                continue;
+            }
+
+            remaining -= extractedReceipt.getQuantity();
+            restoreReceipts.add(extractedReceipt);
+            if (receipt.getQuantity() == null || receipt.getQuantity() <= 0) {
+                updatedReceipts.remove(i);
+            }
+        }
+
+        if (remaining > 0) {
+            throw new BusinessException("计划原材料扣减记录不足，无法返还数量调整库存");
+        }
+
+        return restoreReceipts;
+    }
+
+    private InventoryDeductionReceipt extractPartialReceipt(InventoryDeductionReceipt receipt,
+                                                            int maxQuantity,
+                                                            String fallbackItemName) {
+        int availableQuantity = receipt.getQuantity() != null ? receipt.getQuantity() : 0;
+        if (availableQuantity <= 0 || maxQuantity <= 0) {
+            return null;
+        }
+
+        int extractedQuantity = Math.min(availableQuantity, maxQuantity);
+        String itemName = StringUtils.hasText(receipt.getItemName()) ? receipt.getItemName() : fallbackItemName;
+
+        if (receipt.isTotalOnly() || receipt.getLocationDeductions() == null || receipt.getLocationDeductions().isEmpty()) {
+            receipt.setQuantity(availableQuantity - extractedQuantity);
+            return new InventoryDeductionReceipt(
+                    receipt.getItemType(),
+                    receipt.getItemId(),
+                    itemName,
+                    extractedQuantity,
+                    true,
+                    new ArrayList<>());
+        }
+
+        int remaining = extractedQuantity;
+        List<InventoryDeductionReceipt.LocationDeduction> extractedDeductions = new ArrayList<>();
+        List<InventoryDeductionReceipt.LocationDeduction> locationDeductions = receipt.getLocationDeductions();
+        for (int i = locationDeductions.size() - 1; i >= 0 && remaining > 0; i--) {
+            InventoryDeductionReceipt.LocationDeduction locationDeduction = locationDeductions.get(i);
+            if (locationDeduction == null || locationDeduction.getQuantity() == null || locationDeduction.getQuantity() <= 0) {
+                continue;
+            }
+
+            int deductionQuantity = Math.min(locationDeduction.getQuantity(), remaining);
+            locationDeduction.setQuantity(locationDeduction.getQuantity() - deductionQuantity);
+            extractedDeductions.add(0, new InventoryDeductionReceipt.LocationDeduction(
+                    locationDeduction.getLocation(),
+                    deductionQuantity,
+                    locationDeduction.getCreatedAt()));
+            remaining -= deductionQuantity;
+
+            if (locationDeduction.getQuantity() <= 0) {
+                locationDeductions.remove(i);
+            }
+        }
+
+        receipt.setQuantity(availableQuantity - extractedQuantity);
+        return new InventoryDeductionReceipt(
+                receipt.getItemType(),
+                receipt.getItemId(),
+                itemName,
+                extractedQuantity,
+                false,
+                extractedDeductions);
+    }
+
+    private static class MaterialAdjustmentResult {
+        private final List<InventoryDeductionReceipt> updatedReceipts;
+        private final List<InventoryDeductionReceipt> deductedReceipts;
+        private final List<InventoryDeductionReceipt> restoredReceipts;
+
+        private MaterialAdjustmentResult(List<InventoryDeductionReceipt> updatedReceipts,
+                                         List<InventoryDeductionReceipt> deductedReceipts,
+                                         List<InventoryDeductionReceipt> restoredReceipts) {
+            this.updatedReceipts = updatedReceipts;
+            this.deductedReceipts = deductedReceipts;
+            this.restoredReceipts = restoredReceipts;
+        }
+
+        private static MaterialAdjustmentResult empty() {
+            return new MaterialAdjustmentResult(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        }
+
+        private List<InventoryDeductionReceipt> getUpdatedReceipts() {
+            return updatedReceipts;
+        }
+
+        private List<InventoryDeductionReceipt> getDeductedReceipts() {
+            return deductedReceipts;
+        }
+
+        private List<InventoryDeductionReceipt> getRestoredReceipts() {
+            return restoredReceipts;
         }
     }
 
@@ -670,7 +906,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         }
 
         if (!"APPROVED".equals(status) && !"CANCELLED".equals(status)) {
-            throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
+            throw new BusinessException("审批状态只能为【审批通过】或【已取消】");
         }
 
         List<InventoryDeductionReceipt> restoreReceipts = "CANCELLED".equals(status)

@@ -389,6 +389,25 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void stockInShouldUseChineseStatusTextWhenPlanIsNotCompleted() {
+        ProductionPlan plan = buildPlan("plan-pending", "BATCH-PENDING", "夹克", "P002", "黑色", "L");
+        plan.setStatus("PENDING");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("FINISHED_PRODUCT");
+        request.setItemId("plan-pending");
+        request.setQuantity(3);
+        request.setReason("生产批次BATCH-PENDING入库");
+
+        when(productionPlanRepository.findById("plan-pending")).thenReturn(Optional.of(plan));
+
+        assertThatThrownBy(() -> inventoryService.stockIn(request, "admin-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前状态：待审批")
+                .hasMessageNotContaining("PENDING");
+    }
+
+    @Test
     void stockOutShouldUseAtomicTotalQuantityDeductionForRawMaterialWithoutLocations() {
         RawMaterial material = new RawMaterial();
         material.setId("raw-stock-out");
@@ -536,6 +555,25 @@ class InventoryServiceImplTest {
 
         verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-fifo", -3, 0);
         verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void fifoDeductRawMaterialShouldUseChineseSystemOperatorNameWithoutLocations() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-fifo-operator");
+        material.setName("Cotton");
+        material.setQuantity(8);
+        material.setLocations(Collections.emptyList());
+
+        when(rawMaterialRepository.findById("raw-fifo-operator")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-fifo-operator", -3, 0)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.fifoDeductRawMaterial("raw-fifo-operator", 3, "生产扣减");
+
+        ArgumentCaptor<InventoryRecord> recordCaptor = ArgumentCaptor.forClass(InventoryRecord.class);
+        verify(inventoryRecordRepository).save(recordCaptor.capture());
+        assertThat(recordCaptor.getValue().getOperatorName()).isEqualTo("系统自动");
     }
 
     @Test
@@ -698,6 +736,23 @@ class InventoryServiceImplTest {
 
         verify(finishedProductRepository, never()).save(any(FinishedProduct.class));
         verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
+    }
+
+    @Test
+    void fifoDeductFinishedProductShouldUseChineseSystemOperatorNameWithoutLocations() {
+        FinishedProduct product = buildFinishedProduct("finished-operator", "BATCH-OP", "Hoodie", "W1", "black", "XL");
+        product.setQuantity(8);
+        product.setLocations(Collections.emptyList());
+
+        when(finishedProductRepository.findById("finished-operator")).thenReturn(Optional.of(product));
+        when(mongoAtomicOpsService.changeFinishedProductQuantity("finished-operator", -3, 0)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.fifoDeductFinishedProduct("finished-operator", 3, "订单发货");
+
+        ArgumentCaptor<InventoryRecord> recordCaptor = ArgumentCaptor.forClass(InventoryRecord.class);
+        verify(inventoryRecordRepository).save(recordCaptor.capture());
+        assertThat(recordCaptor.getValue().getOperatorName()).isEqualTo("系统自动");
     }
 
     @Test
