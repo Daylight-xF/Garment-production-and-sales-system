@@ -5,6 +5,7 @@ import com.garment.model.FinishedProduct;
 import com.garment.model.Order;
 import com.garment.model.ProductionPlan;
 import com.garment.model.RawMaterial;
+import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -151,6 +152,31 @@ class MongoAtomicOpsServiceTest {
         assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(new Document("_id", "finished-1"));
         assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
                 new Document("$inc", new Document("quantity", 3).append("version", 1L))
+                        .append("$currentDate", new Document("updateTime", true))
+        );
+    }
+
+    @Test
+    void initializeRawMaterialVersionIfMissingShouldMatchMissingOrNullVersion() {
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(RawMaterial.class)))
+                .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+
+        boolean initialized = mongoAtomicOpsService.initializeRawMaterialVersionIfMissing("raw-legacy");
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(queryCaptor.capture(), updateCaptor.capture(), eq(RawMaterial.class));
+
+        assertThat(initialized).isTrue();
+        assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(
+                new Document("_id", "raw-legacy")
+                        .append("$or", java.util.Arrays.asList(
+                                new Document("version", new Document("$exists", false)),
+                                new Document("version", null)
+                        ))
+        );
+        assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
+                new Document("$set", new Document("version", 0L))
                         .append("$currentDate", new Document("updateTime", true))
         );
     }

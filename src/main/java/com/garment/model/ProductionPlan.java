@@ -1,5 +1,6 @@
 package com.garment.model;
 
+import com.garment.dto.InventoryDeductionReceipt;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,6 +11,7 @@ import org.springframework.data.annotation.Version;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -55,6 +57,8 @@ public class ProductionPlan {
     private Boolean materialsDeducted = false;
 
     private Boolean materialsRestoreInProgress = false;
+
+    private List<InventoryDeductionReceipt> materialDeductionReceipts;
 
     @CreatedDate
     private Date createTime;

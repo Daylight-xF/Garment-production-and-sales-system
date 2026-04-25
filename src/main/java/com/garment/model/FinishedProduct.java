@@ -7,6 +7,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.annotation.Version;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
@@ -16,6 +17,12 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "finished_products")
+@CompoundIndex(
+        name = "finished_product_identity_unique",
+        def = "{'productCode': 1, 'name': 1, 'color': 1, 'size': 1, 'batchNo': 1}",
+        unique = true,
+        sparse = true
+)
 public class FinishedProduct {
 
     @Id

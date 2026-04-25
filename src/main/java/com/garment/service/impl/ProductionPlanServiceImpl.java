@@ -1,16 +1,19 @@
 package com.garment.service.impl;
 
+import com.garment.dto.InventoryDeductionReceipt;
 import com.garment.dto.PlanCreateRequest;
 import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.PlanVO;
 import com.garment.dto.StockInOutRequest;
 import com.garment.dto.TaskVO;
 import com.garment.exception.BusinessException;
+import com.garment.model.InventoryRecord;
 import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
 import com.garment.model.ProductionTask;
 import com.garment.model.RawMaterial;
 import com.garment.model.User;
+import com.garment.repository.InventoryRecordRepository;
 import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
 import com.garment.repository.ProductionTaskRepository;
@@ -30,6 +33,9 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,6 +46,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     private final ProductDefinitionRepository productDefinitionRepository;
     private final ProductionTaskRepository productionTaskRepository;
     private final RawMaterialRepository rawMaterialRepository;
+    private final InventoryRecordRepository inventoryRecordRepository;
     private final InventoryService inventoryService;
     private final MongoAtomicOpsService mongoAtomicOpsService;
 
@@ -48,6 +55,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                                       ProductDefinitionRepository productDefinitionRepository,
                                       ProductionTaskRepository productionTaskRepository,
                                       RawMaterialRepository rawMaterialRepository,
+                                      InventoryRecordRepository inventoryRecordRepository,
                                       InventoryService inventoryService,
                                       MongoAtomicOpsService mongoAtomicOpsService) {
         this.productionPlanRepository = productionPlanRepository;
@@ -55,6 +63,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         this.productDefinitionRepository = productDefinitionRepository;
         this.productionTaskRepository = productionTaskRepository;
         this.rawMaterialRepository = rawMaterialRepository;
+        this.inventoryRecordRepository = inventoryRecordRepository;
         this.inventoryService = inventoryService;
         this.mongoAtomicOpsService = mongoAtomicOpsService;
     }
@@ -64,7 +73,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         ProductDefinition productDef = productDefinitionRepository.findById(request.getProductDefinitionId())
                 .orElseThrow(() -> new BusinessException("产品定义不存在"));
 
-        checkAndDeductRawMaterials(productDef, request.getQuantity(), request.getBatchNo());
+        List<InventoryDeductionReceipt> deductionReceipts =
+                checkAndDeductRawMaterials(productDef, request.getQuantity(), request.getBatchNo());
 
         ProductionPlan plan = new ProductionPlan();
         plan.setBatchNo(request.getBatchNo());
@@ -82,15 +92,16 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         plan.setColor(request.getColor());
         plan.setSize(request.getSize());
         plan.setCreateBy(userId);
-        plan.setMaterialsDeducted(true);
+        plan.setMaterialsDeducted(!deductionReceipts.isEmpty());
+        plan.setMaterialDeductionReceipts(deductionReceipts);
 
         ProductionPlan saved = productionPlanRepository.save(plan);
         return convertToVO(saved);
     }
 
-    private void checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String batchNo) {
+    private List<InventoryDeductionReceipt> checkAndDeductRawMaterials(ProductDefinition productDef, Integer planQuantity, String batchNo) {
         if (productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
-            return;
+            return new ArrayList<>();
         }
 
         List<String> insufficientMaterials = new ArrayList<>();
@@ -116,21 +127,36 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("原材料库存不足，无法创建生产计划：" + String.join("；", insufficientMaterials));
         }
 
+        List<InventoryDeductionReceipt> receipts = new ArrayList<>();
         for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
             double neededQty = material.getQuantity() * planQuantity;
             int deductQty = (int) Math.round(neededQty);
 
-            inventoryService.fifoDeductRawMaterial(material.getMaterialId(), deductQty,
-                    "生产计划-" + batchNo + "-FIFO扣减");
+            InventoryDeductionReceipt receipt = inventoryService.fifoDeductRawMaterialWithReceipt(
+                    material.getMaterialId(), deductQty, "生产计划-" + batchNo + "-FIFO扣减");
+            if (receipt != null) {
+                receipts.add(receipt);
+            }
         }
+        return receipts;
     }
 
-    private void syncTaskPlanQuantities(String planId, int newPlanQuantity) {
+    private List<TaskQuantitySnapshot> captureTaskQuantitySnapshots(String planId) {
         List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
         if (tasks.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return tasks.stream()
+                .map(TaskQuantitySnapshot::new)
+                .collect(Collectors.toList());
+    }
+
+    private void syncTaskPlanQuantities(List<TaskQuantitySnapshot> taskSnapshots, String planId, int newPlanQuantity) {
+        if (taskSnapshots.isEmpty()) {
             return;
         }
-        for (ProductionTask task : tasks) {
+        for (TaskQuantitySnapshot snapshot : taskSnapshots) {
+            ProductionTask task = snapshot.getTask();
             task.setPlanQuantity(newPlanQuantity);
             if (task.getPlanQuantity() != null && task.getPlanQuantity() > 0
                     && task.getCompletedQuantity() != null) {
@@ -140,7 +166,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             productionTaskRepository.save(task);
         }
 
-        int totalCompleted = tasks.stream()
+        int totalCompleted = taskSnapshots.stream()
+                .map(TaskQuantitySnapshot::getTask)
                 .mapToInt(t -> t.getCompletedQuantity() != null ? t.getCompletedQuantity() : 0)
                 .sum();
 
@@ -148,6 +175,14 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         if (plan != null) {
             plan.setCompletedQuantity(totalCompleted);
             productionPlanRepository.save(plan);
+        }
+    }
+
+    private void rollbackTaskPlanQuantities(List<TaskQuantitySnapshot> taskSnapshots) {
+        for (int i = taskSnapshots.size() - 1; i >= 0; i--) {
+            TaskQuantitySnapshot snapshot = taskSnapshots.get(i);
+            snapshot.restore();
+            productionTaskRepository.save(snapshot.getTask());
         }
     }
 
@@ -187,6 +222,104 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return restoreRequests;
     }
 
+    private List<InventoryDeductionReceipt> buildRawMaterialRestoreReceipts(ProductionPlan planSnapshot) {
+        if (planSnapshot == null || Boolean.FALSE.equals(planSnapshot.getMaterialsDeducted())) {
+            return new ArrayList<>();
+        }
+        List<InventoryDeductionReceipt> storedReceipts = planSnapshot.getMaterialDeductionReceipts() == null
+                ? new ArrayList<>()
+                : planSnapshot.getMaterialDeductionReceipts().stream()
+                .filter(receipt -> receipt != null && "RAW_MATERIAL".equals(receipt.getItemType()))
+                .collect(Collectors.toList());
+        if (!storedReceipts.isEmpty()) {
+            return storedReceipts;
+        }
+        return rebuildLegacyRawMaterialRestoreReceipts(planSnapshot.getBatchNo());
+    }
+
+    private List<InventoryDeductionReceipt> rebuildLegacyRawMaterialRestoreReceipts(String batchNo) {
+        if (!StringUtils.hasText(batchNo)) {
+            return new ArrayList<>();
+        }
+
+        String reasonPrefix = "生产计划-" + batchNo + "-FIFO扣减";
+        return inventoryRecordRepository.findAll().stream()
+                .filter(record -> "OUT".equals(record.getInventoryType()))
+                .filter(record -> "RAW_MATERIAL".equals(record.getItemType()))
+                .filter(record -> StringUtils.hasText(record.getReason()) && record.getReason().startsWith(reasonPrefix))
+                .map(this::buildReceiptFromInventoryRecord)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private InventoryDeductionReceipt buildReceiptFromInventoryRecord(InventoryRecord record) {
+        Integer recordedQuantity = record.getQuantity();
+        if (!StringUtils.hasText(record.getItemId()) || recordedQuantity == null || recordedQuantity == 0) {
+            return null;
+        }
+
+        String fifoDetail = extractFifoDetail(record.getReason());
+        if (!StringUtils.hasText(fifoDetail)) {
+            return null;
+        }
+
+        int quantity = Math.abs(recordedQuantity);
+        if (fifoDetail.startsWith("TOTAL(") && fifoDetail.endsWith(")")) {
+            return new InventoryDeductionReceipt(
+                    "RAW_MATERIAL",
+                    record.getItemId(),
+                    record.getItemName(),
+                    quantity,
+                    true,
+                    new ArrayList<>());
+        }
+
+        List<InventoryDeductionReceipt.LocationDeduction> locationDeductions = parseLocationDeductions(fifoDetail);
+        if (locationDeductions.isEmpty()) {
+            return null;
+        }
+
+        return new InventoryDeductionReceipt(
+                "RAW_MATERIAL",
+                record.getItemId(),
+                record.getItemName(),
+                quantity,
+                false,
+                locationDeductions);
+    }
+
+    private String extractFifoDetail(String reason) {
+        if (!StringUtils.hasText(reason)) {
+            return null;
+        }
+        int start = reason.lastIndexOf("[FIFO:");
+        int end = reason.lastIndexOf(']');
+        if (start < 0 || end <= start + 6) {
+            return null;
+        }
+        return reason.substring(start + 6, end).trim();
+    }
+
+    private List<InventoryDeductionReceipt.LocationDeduction> parseLocationDeductions(String fifoDetail) {
+        List<InventoryDeductionReceipt.LocationDeduction> deductions = new ArrayList<>();
+        Matcher matcher = Pattern.compile("([^()]+?)\\((\\d+)\\)").matcher(fifoDetail);
+        int cursor = 0;
+        while (matcher.find()) {
+            if (matcher.start() != cursor) {
+                return new ArrayList<>();
+            }
+            deductions.add(new InventoryDeductionReceipt.LocationDeduction(
+                    matcher.group(1),
+                    Integer.parseInt(matcher.group(2)),
+                    null));
+            cursor = matcher.end();
+        }
+        if (cursor != fifoDetail.length()) {
+            return new ArrayList<>();
+        }
+        return deductions;
+    }
+
     private void rollbackRestoredRawMaterials(List<StockInOutRequest> restoredRequests, String batchNo) {
         for (int i = restoredRequests.size() - 1; i >= 0; i--) {
             StockInOutRequest restoredRequest = restoredRequests.get(i);
@@ -194,6 +327,18 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             rollbackRequest.setItemType(restoredRequest.getItemType());
             rollbackRequest.setItemId(restoredRequest.getItemId());
             rollbackRequest.setQuantity(restoredRequest.getQuantity());
+            rollbackRequest.setReason("生产计划-" + batchNo + "-取消返还回滚");
+            inventoryService.stockOut(rollbackRequest, "system");
+        }
+    }
+
+    private void rollbackRestoredRawMaterialReceipts(List<InventoryDeductionReceipt> restoredReceipts, String batchNo) {
+        for (int i = restoredReceipts.size() - 1; i >= 0; i--) {
+            InventoryDeductionReceipt restoredReceipt = restoredReceipts.get(i);
+            StockInOutRequest rollbackRequest = new StockInOutRequest();
+            rollbackRequest.setItemType(restoredReceipt.getItemType());
+            rollbackRequest.setItemId(restoredReceipt.getItemId());
+            rollbackRequest.setQuantity(restoredReceipt.getQuantity());
             rollbackRequest.setReason("生产计划-" + batchNo + "-取消返还回滚");
             inventoryService.stockOut(rollbackRequest, "system");
         }
@@ -291,6 +436,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
     public PlanVO updatePlan(String id, PlanUpdateRequest request) {
         ProductionPlan plan = productionPlanRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("生产计划不存在"));
+        List<StockInOutRequest> rollbackRequests = new ArrayList<>();
+        List<TaskQuantitySnapshot> taskRollbackSnapshots = new ArrayList<>();
 
         boolean isApproved = "APPROVED".equals(plan.getStatus());
 
@@ -316,48 +463,75 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             plan.setProductName(request.getProductName());
         }
 
-        Integer oldQuantity = plan.getQuantity();
-        if (request.getQuantity() != null) {
-            int quantityDiff = request.getQuantity() - oldQuantity;
-            if (quantityDiff != 0) {
-                adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
+        try {
+            Integer oldQuantity = plan.getQuantity();
+            if (request.getQuantity() != null) {
+                int quantityDiff = request.getQuantity() - oldQuantity;
+                if (quantityDiff != 0) {
+                    rollbackRequests = adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
+                    taskRollbackSnapshots = captureTaskQuantitySnapshots(plan.getId());
+                    syncTaskPlanQuantities(taskRollbackSnapshots, plan.getId(), request.getQuantity());
+                }
+                plan.setQuantity(request.getQuantity());
             }
-            plan.setQuantity(request.getQuantity());
 
-            syncTaskPlanQuantities(plan.getId(), request.getQuantity());
-        }
+            if (request.getUnit() != null) {
+                plan.setUnit(request.getUnit());
+            }
+            if (request.getStartDate() != null) {
+                plan.setStartDate(request.getStartDate());
+            }
+            if (request.getEndDate() != null) {
+                plan.setEndDate(request.getEndDate());
+            }
+            if (request.getDescription() != null) {
+                plan.setDescription(request.getDescription());
+            }
+            if (request.getColor() != null) {
+                plan.setColor(request.getColor());
+            }
+            if (request.getSize() != null) {
+                plan.setSize(request.getSize());
+            }
 
-        if (request.getUnit() != null) {
-            plan.setUnit(request.getUnit());
+            ProductionPlan saved = productionPlanRepository.save(plan);
+            return convertToVO(saved);
+        } catch (RuntimeException ex) {
+            rollbackTaskPlanQuantities(taskRollbackSnapshots);
+            rollbackPlanInventoryAdjustments(rollbackRequests);
+            throw ex;
         }
-        if (request.getStartDate() != null) {
-            plan.setStartDate(request.getStartDate());
-        }
-        if (request.getEndDate() != null) {
-            plan.setEndDate(request.getEndDate());
-        }
-        if (request.getDescription() != null) {
-            plan.setDescription(request.getDescription());
-        }
-        if (request.getColor() != null) {
-            plan.setColor(request.getColor());
-        }
-        if (request.getSize() != null) {
-            plan.setSize(request.getSize());
-        }
-
-        ProductionPlan saved = productionPlanRepository.save(plan);
-        return convertToVO(saved);
     }
 
-    private void adjustInventoryForQuantityChange(ProductionPlan plan, int oldQty, int newQty) {
+    private void executeRawMaterialReceiptRestore(List<InventoryDeductionReceipt> restoreReceipts, String batchNo) {
+        List<InventoryDeductionReceipt> restoredReceipts = new ArrayList<>();
+        try {
+            for (InventoryDeductionReceipt restoreReceipt : restoreReceipts) {
+                inventoryService.restoreInventoryDeduction(restoreReceipt, "生产计划-" + batchNo + "-取消返还");
+                restoredReceipts.add(restoreReceipt);
+            }
+        } catch (RuntimeException ex) {
+            try {
+                rollbackRestoredRawMaterialReceipts(restoredReceipts, batchNo);
+            } catch (RuntimeException rollbackEx) {
+                IllegalStateException fatal = new IllegalStateException("原材料返还失败且补偿回滚失败，请立即人工核对库存", rollbackEx);
+                fatal.addSuppressed(ex);
+                throw fatal;
+            }
+            throw ex;
+        }
+    }
+
+    private List<StockInOutRequest> adjustInventoryForQuantityChange(ProductionPlan plan, int oldQty, int newQty) {
         ProductDefinition productDef = productDefinitionRepository.findById(plan.getProductDefinitionId()).orElse(null);
         if (productDef == null || productDef.getMaterials() == null || productDef.getMaterials().isEmpty()) {
-            return;
+            return new ArrayList<>();
         }
 
         int diff = newQty - oldQty;
+        List<StockInOutRequest> rollbackRequests = new ArrayList<>();
 
+        List<InventoryDeductionReceipt> receipts = new ArrayList<>();
         for (ProductDefinition.ProductMaterial material : productDef.getMaterials()) {
             double unitNeed = material.getQuantity();
             double totalAdjustment = unitNeed * Math.abs(diff);
@@ -386,6 +560,14 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 stockOutRequest.setReason("生产计划-" + plan.getBatchNo()
                         + "-数量调整(从" + oldQty + "增至" + newQty + ")-扣减");
                 inventoryService.stockOut(stockOutRequest, "system");
+
+                StockInOutRequest rollbackRequest = new StockInOutRequest();
+                rollbackRequest.setItemType("RAW_MATERIAL");
+                rollbackRequest.setItemId(material.getMaterialId());
+                rollbackRequest.setQuantity(adjustIntQty);
+                rollbackRequest.setReason("生产计划-" + plan.getBatchNo()
+                        + "-数量调整(从" + oldQty + "增至" + newQty + ")-扣减回滚");
+                rollbackRequests.add(rollbackRequest);
             } else {
                 StockInOutRequest stockInRequest = new StockInOutRequest();
                 stockInRequest.setItemType("RAW_MATERIAL");
@@ -394,6 +576,26 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 stockInRequest.setReason("生产计划-" + plan.getBatchNo()
                         + "-数量调整(从" + oldQty + "减至" + newQty + ")-返还");
                 inventoryService.stockIn(stockInRequest, "system");
+
+                StockInOutRequest rollbackRequest = new StockInOutRequest();
+                rollbackRequest.setItemType("RAW_MATERIAL");
+                rollbackRequest.setItemId(material.getMaterialId());
+                rollbackRequest.setQuantity(adjustIntQty);
+                rollbackRequest.setReason("生产计划-" + plan.getBatchNo()
+                        + "-数量调整(从" + oldQty + "减至" + newQty + ")-返还回滚");
+                rollbackRequests.add(rollbackRequest);
+            }
+        }
+        return rollbackRequests;
+    }
+
+    private void rollbackPlanInventoryAdjustments(List<StockInOutRequest> rollbackRequests) {
+        for (int i = rollbackRequests.size() - 1; i >= 0; i--) {
+            StockInOutRequest rollbackRequest = rollbackRequests.get(i);
+            if (rollbackRequest.getReason() != null && rollbackRequest.getReason().contains("扣减回滚")) {
+                inventoryService.stockIn(rollbackRequest, "system");
+            } else {
+                inventoryService.stockOut(rollbackRequest, "system");
             }
         }
     }
@@ -412,16 +614,23 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("计划原材料返还处理中，请稍后重试");
         }
 
-        List<StockInOutRequest> restoreRequests = buildRawMaterialRestoreRequests(plan, plan.getBatchNo(), false);
-        if (Boolean.TRUE.equals(plan.getMaterialsDeducted()) && restoreRequests.isEmpty()) {
+        List<InventoryDeductionReceipt> restoreReceipts = buildRawMaterialRestoreReceipts(plan);
+        List<StockInOutRequest> restoreRequests = restoreReceipts.isEmpty()
+                ? buildRawMaterialRestoreRequests(plan, plan.getBatchNo(), false)
+                : new ArrayList<>();
+        if (Boolean.TRUE.equals(plan.getMaterialsDeducted()) && restoreReceipts.isEmpty() && restoreRequests.isEmpty()) {
             throw new BusinessException("原材料返还信息缺失，请先人工核对后再删除");
         }
-        if (!restoreRequests.isEmpty()) {
+        if (!restoreReceipts.isEmpty() || !restoreRequests.isEmpty()) {
             if (!mongoAtomicOpsService.markPlanMaterialsRestoreInProgress(id)) {
                 throw new BusinessException("计划状态已变更，请刷新后再操作");
             }
             try {
-                executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                if (!restoreReceipts.isEmpty()) {
+                    executeRawMaterialReceiptRestore(restoreReceipts, plan.getBatchNo());
+                } else {
+                    executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                }
                 completePlanMaterialRestore(id);
             } catch (IllegalStateException fatalEx) {
                 throw fatalEx;
@@ -464,17 +673,24 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             throw new BusinessException("审批状态只能为APPROVED或CANCELLED");
         }
 
-        List<StockInOutRequest> restoreRequests = "CANCELLED".equals(status)
+        List<InventoryDeductionReceipt> restoreReceipts = "CANCELLED".equals(status)
+                ? buildRawMaterialRestoreReceipts(plan)
+                : new ArrayList<>();
+        List<StockInOutRequest> restoreRequests = "CANCELLED".equals(status) && restoreReceipts.isEmpty()
                 ? buildRawMaterialRestoreRequests(plan, plan.getBatchNo(), true)
                 : new ArrayList<>();
-        Document transitionExtraFields = !restoreRequests.isEmpty()
+        Document transitionExtraFields = (!restoreReceipts.isEmpty() || !restoreRequests.isEmpty())
                 ? new Document("materialsRestoreInProgress", true)
                 : null;
         assertPlanStatusChanged(mongoAtomicOpsService.transitionPlanStatus(id, "PENDING", status, transitionExtraFields));
 
-        if (!restoreRequests.isEmpty()) {
+        if (!restoreReceipts.isEmpty() || !restoreRequests.isEmpty()) {
             try {
-                executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                if (!restoreReceipts.isEmpty()) {
+                    executeRawMaterialReceiptRestore(restoreReceipts, plan.getBatchNo());
+                } else {
+                    executeRawMaterialRestore(restoreRequests, plan.getBatchNo());
+                }
                 completePlanMaterialRestore(id);
             } catch (IllegalStateException fatalEx) {
                 throw fatalEx;
@@ -590,6 +806,30 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         return tasks.stream()
                 .map(this::convertTaskToVO)
                 .collect(Collectors.toList());
+    }
+
+    private static class TaskQuantitySnapshot {
+        private final ProductionTask task;
+        private final Integer planQuantity;
+        private final Integer completedQuantity;
+        private final Integer progress;
+
+        private TaskQuantitySnapshot(ProductionTask task) {
+            this.task = task;
+            this.planQuantity = task.getPlanQuantity();
+            this.completedQuantity = task.getCompletedQuantity();
+            this.progress = task.getProgress();
+        }
+
+        private ProductionTask getTask() {
+            return task;
+        }
+
+        private void restore() {
+            task.setPlanQuantity(planQuantity);
+            task.setCompletedQuantity(completedQuantity);
+            task.setProgress(progress);
+        }
     }
 
     private TaskVO convertTaskToVO(ProductionTask task) {

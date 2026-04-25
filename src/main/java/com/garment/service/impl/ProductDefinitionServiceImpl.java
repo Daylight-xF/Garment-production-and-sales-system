@@ -7,6 +7,7 @@ import com.garment.model.RawMaterial;
 import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.RawMaterialRepository;
 import com.garment.service.ProductDefinitionService;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -104,8 +105,12 @@ public class ProductDefinitionServiceImpl implements ProductDefinitionService {
         definition.setDescription(request.getDescription());
         definition.setMaterials(materials);
 
-        ProductDefinition saved = productDefinitionRepository.save(definition);
-        return convertToVO(saved);
+        try {
+            ProductDefinition saved = productDefinitionRepository.save(definition);
+            return convertToVO(saved);
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException("产品编号已存在");
+        }
     }
 
     @Override

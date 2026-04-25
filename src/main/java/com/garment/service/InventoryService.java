@@ -47,4 +47,10 @@ public interface InventoryService {
     void fifoDeductRawMaterial(String materialId, int quantity, String reason);
 
     void fifoDeductFinishedProduct(String finishedProductId, int quantity, String reason);
+
+    InventoryDeductionReceipt fifoDeductRawMaterialWithReceipt(String materialId, int quantity, String reason);
+
+    InventoryDeductionReceipt fifoDeductFinishedProductWithReceipt(String finishedProductId, int quantity, String reason);
+
+    void restoreInventoryDeduction(InventoryDeductionReceipt receipt, String reason);
 }

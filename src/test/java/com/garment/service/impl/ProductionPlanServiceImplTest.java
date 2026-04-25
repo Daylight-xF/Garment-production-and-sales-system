@@ -1,11 +1,16 @@
 package com.garment.service.impl;
 
+import com.garment.dto.InventoryDeductionReceipt;
 import com.garment.dto.PlanCreateRequest;
+import com.garment.dto.PlanUpdateRequest;
 import com.garment.dto.StockInOutRequest;
 import com.garment.exception.BusinessException;
+import com.garment.model.InventoryRecord;
 import com.garment.model.ProductDefinition;
 import com.garment.model.ProductionPlan;
 import com.garment.model.ProductionTask;
+import com.garment.model.RawMaterial;
+import com.garment.repository.InventoryRecordRepository;
 import com.garment.repository.ProductDefinitionRepository;
 import com.garment.repository.ProductionPlanRepository;
 import com.garment.repository.ProductionTaskRepository;
@@ -23,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.mongodb.core.index.Indexed;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -52,6 +58,9 @@ class ProductionPlanServiceImplTest {
 
     @Mock
     private RawMaterialRepository rawMaterialRepository;
+
+    @Mock
+    private InventoryRecordRepository inventoryRecordRepository;
 
     @Mock
     private InventoryService inventoryService;
@@ -88,6 +97,44 @@ class ProductionPlanServiceImplTest {
         ArgumentCaptor<ProductionPlan> planCaptor = ArgumentCaptor.forClass(ProductionPlan.class);
         verify(productionPlanRepository).save(planCaptor.capture());
         assertThat(planCaptor.getValue().getCategory()).isEqualTo("BOTTOM");
+    }
+
+    @Test
+    void createPlanShouldPersistMaterialDeductionReceipts() {
+        ProductDefinition definition = definitionWithMaterial("def-create-receipts", "raw-create-receipts", 2.0);
+        definition.setProductCode("P001");
+        definition.setProductName("Jacket");
+        definition.setCategory("TOP");
+
+        PlanCreateRequest request = new PlanCreateRequest();
+        request.setBatchNo("BATCH-RECEIPTS");
+        request.setProductDefinitionId("def-create-receipts");
+        request.setQuantity(3);
+        request.setColor("Black");
+        request.setSize("L");
+        request.setUnit("piece");
+
+        RawMaterial rawMaterial = rawMaterial("raw-create-receipts", "Cotton", 100);
+        InventoryDeductionReceipt receipt = new InventoryDeductionReceipt(
+                "RAW_MATERIAL",
+                "raw-create-receipts",
+                "Cotton",
+                6,
+                false,
+                Collections.singletonList(new InventoryDeductionReceipt.LocationDeduction("A-01", 6, null))
+        );
+
+        when(productDefinitionRepository.findById("def-create-receipts")).thenReturn(Optional.of(definition));
+        when(rawMaterialRepository.findById("raw-create-receipts")).thenReturn(Optional.of(rawMaterial));
+        when(inventoryService.fifoDeductRawMaterialWithReceipt("raw-create-receipts", 6, "生产计划-BATCH-RECEIPTS-FIFO扣减"))
+                .thenReturn(receipt);
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productionPlanService.createPlan(request, "admin-1");
+
+        ArgumentCaptor<ProductionPlan> planCaptor = ArgumentCaptor.forClass(ProductionPlan.class);
+        verify(productionPlanRepository).save(planCaptor.capture());
+        assertThat(planCaptor.getValue().getMaterialDeductionReceipts()).containsExactly(receipt);
     }
 
     @Test
@@ -150,6 +197,76 @@ class ProductionPlanServiceImplTest {
         verify(mongoAtomicOpsService).transitionPlanStatus(eq("plan-cancel-success"), eq("PENDING"), eq("CANCELLED"), payloadCaptor.capture());
         assertThat(payloadCaptor.getValue().getBoolean("materialsRestoreInProgress")).isTrue();
         verify(mongoAtomicOpsService).completePlanMaterialsRestore("plan-cancel-success");
+    }
+
+    @Test
+    void approvePlanShouldRestoreStoredDeductionReceiptsWhenCancelling() {
+        ProductionPlan before = approvedPlan("plan-cancel-receipt", "PENDING");
+        before.setMaterialDeductionReceipts(Collections.singletonList(new InventoryDeductionReceipt(
+                "RAW_MATERIAL",
+                "raw-receipt",
+                "Cotton",
+                12,
+                false,
+                Collections.singletonList(new InventoryDeductionReceipt.LocationDeduction("A-01", 12, null))
+        )));
+        ProductionPlan after = approvedPlan("plan-cancel-receipt", "CANCELLED");
+
+        when(productionPlanRepository.findById("plan-cancel-receipt"))
+                .thenReturn(Optional.of(before))
+                .thenReturn(Optional.of(after));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-receipt"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.completePlanMaterialsRestore("plan-cancel-receipt")).thenReturn(true);
+
+        productionPlanService.approvePlan("plan-cancel-receipt", "CANCELLED");
+
+        verify(inventoryService).restoreInventoryDeduction(eq(before.getMaterialDeductionReceipts().get(0)),
+                eq("生产计划-" + before.getBatchNo() + "-取消返还"));
+        verify(inventoryService, never()).stockIn(any(StockInOutRequest.class), eq("system"));
+        verify(productDefinitionRepository, never()).findById(any());
+    }
+
+    @Test
+    void approvePlanShouldRebuildLegacyDeductionReceiptsFromInventoryRecordsWhenCancelling() {
+        ProductionPlan before = approvedPlan("plan-cancel-legacy-receipt", "PENDING");
+        before.setBatchNo("BATCH-LEGACY");
+        before.setMaterialsDeducted(true);
+        before.setMaterialDeductionReceipts(null);
+        ProductionPlan after = approvedPlan("plan-cancel-legacy-receipt", "CANCELLED");
+        after.setBatchNo("BATCH-LEGACY");
+
+        InventoryRecord record = new InventoryRecord();
+        record.setInventoryType("OUT");
+        record.setItemType("RAW_MATERIAL");
+        record.setItemId("raw-legacy-receipt");
+        record.setItemName("Cotton");
+        record.setQuantity(-12);
+        record.setReason("生产计划-BATCH-LEGACY-FIFO扣减 [FIFO:A-01(7)B-01(5)]");
+
+        when(productionPlanRepository.findById("plan-cancel-legacy-receipt"))
+                .thenReturn(Optional.of(before))
+                .thenReturn(Optional.of(after));
+        when(inventoryRecordRepository.findAll()).thenReturn(Collections.singletonList(record));
+        when(mongoAtomicOpsService.transitionPlanStatus(eq("plan-cancel-legacy-receipt"), eq("PENDING"), eq("CANCELLED"), any()))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.completePlanMaterialsRestore("plan-cancel-legacy-receipt")).thenReturn(true);
+
+        productionPlanService.approvePlan("plan-cancel-legacy-receipt", "CANCELLED");
+
+        verify(inventoryService).restoreInventoryDeduction(eq(new InventoryDeductionReceipt(
+                        "RAW_MATERIAL",
+                        "raw-legacy-receipt",
+                        "Cotton",
+                        12,
+                        false,
+                        java.util.Arrays.asList(
+                                new InventoryDeductionReceipt.LocationDeduction("A-01", 7, null),
+                                new InventoryDeductionReceipt.LocationDeduction("B-01", 5, null)
+                        ))),
+                eq("生产计划-BATCH-LEGACY-取消返还"));
+        verify(inventoryService, never()).stockIn(any(StockInOutRequest.class), eq("system"));
+        verify(productDefinitionRepository, never()).findById(any());
     }
 
     @Test
@@ -332,6 +449,85 @@ class ProductionPlanServiceImplTest {
                 .hasMessageContaining("计划状态已变更，请刷新后再操作");
     }
 
+    @Test
+    void updatePlanShouldRollbackInventoryAdjustmentWhenPlanSaveFails() {
+        ProductionPlan plan = approvedPlan("plan-update-rollback", "APPROVED");
+        plan.setProductDefinitionId("def-update-rollback");
+
+        ProductDefinition definition = definitionWithMaterial("def-update-rollback", "raw-update", 1.0);
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(14);
+
+        when(productionPlanRepository.findById("plan-update-rollback")).thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-update-rollback")).thenReturn(Optional.of(definition));
+        when(rawMaterialRepository.findById("raw-update")).thenReturn(Optional.of(rawMaterial("raw-update", "棉布", 20)));
+        when(productionTaskRepository.findByPlanId("plan-update-rollback")).thenReturn(Collections.emptyList());
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenThrow(new RuntimeException("plan save failed"));
+
+        assertThatThrownBy(() -> productionPlanService.updatePlan("plan-update-rollback", request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("plan save failed");
+
+        ArgumentCaptor<StockInOutRequest> stockOutCaptor = ArgumentCaptor.forClass(StockInOutRequest.class);
+        ArgumentCaptor<StockInOutRequest> stockInCaptor = ArgumentCaptor.forClass(StockInOutRequest.class);
+        verify(inventoryService).stockOut(stockOutCaptor.capture(), eq("system"));
+        verify(inventoryService).stockIn(stockInCaptor.capture(), eq("system"));
+        assertThat(stockOutCaptor.getValue().getItemId()).isEqualTo("raw-update");
+        assertThat(stockOutCaptor.getValue().getQuantity()).isEqualTo(2);
+        assertThat(stockInCaptor.getValue().getItemId()).isEqualTo("raw-update");
+        assertThat(stockInCaptor.getValue().getQuantity()).isEqualTo(2);
+        assertThat(stockInCaptor.getValue().getReason()).contains("回滚");
+    }
+
+    @Test
+    void updatePlanShouldRollbackTaskQuantitySyncWhenPlanSaveFails() {
+        ProductionPlan plan = approvedPlan("plan-update-task-rollback", "APPROVED");
+        plan.setProductDefinitionId("def-update-task-rollback");
+        plan.setCompletedQuantity(6);
+
+        ProductDefinition definition = definitionWithMaterial("def-update-task-rollback", "raw-task-rollback", 1.0);
+        ProductionTask task = new ProductionTask();
+        task.setId("task-rollback-1");
+        task.setPlanId("plan-update-task-rollback");
+        task.setPlanQuantity(12);
+        task.setCompletedQuantity(6);
+        task.setProgress(50);
+
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(14);
+
+        when(productionPlanRepository.findById("plan-update-task-rollback"))
+                .thenReturn(Optional.of(plan))
+                .thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-update-task-rollback")).thenReturn(Optional.of(definition));
+        when(rawMaterialRepository.findById("raw-task-rollback"))
+                .thenReturn(Optional.of(rawMaterial("raw-task-rollback", "Cotton", 20)));
+        when(productionTaskRepository.findByPlanId("plan-update-task-rollback"))
+                .thenReturn(Collections.singletonList(task));
+        java.util.List<Integer> savedPlanQuantities = new ArrayList<>();
+        java.util.List<Integer> savedCompletedQuantities = new ArrayList<>();
+        java.util.List<Integer> savedProgresses = new ArrayList<>();
+        when(productionTaskRepository.save(any(ProductionTask.class))).thenAnswer(invocation -> {
+            ProductionTask savedTask = invocation.getArgument(0);
+            savedPlanQuantities.add(savedTask.getPlanQuantity());
+            savedCompletedQuantities.add(savedTask.getCompletedQuantity());
+            savedProgresses.add(savedTask.getProgress());
+            return savedTask;
+        });
+        when(productionPlanRepository.save(any(ProductionPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0))
+                .thenThrow(new RuntimeException("plan save failed"));
+
+        assertThatThrownBy(() -> productionPlanService.updatePlan("plan-update-task-rollback", request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("plan save failed");
+
+        verify(productionTaskRepository, org.mockito.Mockito.times(2)).save(any(ProductionTask.class));
+        assertThat(savedPlanQuantities).containsExactly(14, 12);
+        assertThat(savedCompletedQuantities).containsExactly(6, 6);
+        assertThat(savedProgresses).containsExactly(43, 50);
+    }
+
     private ProductionPlan approvedPlan(String id, String status) {
         ProductionPlan plan = new ProductionPlan();
         plan.setId(id);
@@ -362,5 +558,13 @@ class ProductionPlanServiceImplTest {
         definition.setId(definitionId);
         definition.setMaterials(java.util.Arrays.asList(materials));
         return definition;
+    }
+
+    private RawMaterial rawMaterial(String id, String name, int quantity) {
+        RawMaterial material = new RawMaterial();
+        material.setId(id);
+        material.setName(name);
+        material.setQuantity(quantity);
+        return material;
     }
 }

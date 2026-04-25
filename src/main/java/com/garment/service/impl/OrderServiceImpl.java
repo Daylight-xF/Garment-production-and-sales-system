@@ -22,6 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -160,7 +161,12 @@ public class OrderServiceImpl implements OrderService {
             order.setRemark(request.getRemark());
         }
 
-        Order saved = orderRepository.save(order);
+        Order saved;
+        try {
+            saved = orderRepository.save(order);
+        } catch (OptimisticLockingFailureException ex) {
+            throw new BusinessException("订单状态已变更，请刷新后再操作");
+        }
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
         return convertToVO(saved, items, null);
     }
@@ -174,8 +180,10 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("仅待审核或已审核的订单可取消");
         }
 
-        order.setStatus("CANCELLED");
-        orderRepository.save(order);
+        boolean cancelled = mongoAtomicOpsService.transitionOrderStatus(id, order.getStatus(), "CANCELLED", null);
+        if (!cancelled) {
+            throw new BusinessException("订单状态已变更，请刷新后再操作");
+        }
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
@@ -269,29 +277,46 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("订单状态已变更，请刷新后再操作");
         }
 
+        List<InventoryDeductionReceipt> receipts = new ArrayList<>();
         try {
             for (ShippingDeductionPlan plan : deductionPlans) {
                 if (plan.requiredQuantity <= 0) {
                     continue;
                 }
-                inventoryService.fifoDeductFinishedProduct(
+                InventoryDeductionReceipt receipt = inventoryService.fifoDeductFinishedProductWithReceipt(
                         plan.product.getId(),
                         plan.requiredQuantity,
                         "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
                 );
+                receipts.add(receipt);
             }
         } catch (RuntimeException ex) {
+            RuntimeException failure = ex;
             try {
-                mongoAtomicOpsService.transitionOrderStatus(
+                rollbackShippingReceipts(receipts, order.getOrderNo());
+            } catch (RuntimeException rollbackEx) {
+                IllegalStateException fatal = new IllegalStateException("订单发货失败，且库存补偿回滚失败，请立即人工核对库存", rollbackEx);
+                fatal.addSuppressed(ex);
+                failure = fatal;
+            }
+            try {
+                boolean reverted = mongoAtomicOpsService.transitionOrderStatus(
                         id,
                         "SHIPPED",
                         "APPROVED",
                         new Document("shipTime", null)
                 );
-            } catch (RuntimeException ignored) {
-                // Best-effort rollback only.
+                if (!reverted) {
+                    IllegalStateException fatal = new IllegalStateException("订单发货失败，且订单状态回滚未生效，请立即人工核对订单");
+                    fatal.addSuppressed(failure);
+                    throw fatal;
+                }
+            } catch (RuntimeException rollbackStatusEx) {
+                IllegalStateException fatal = new IllegalStateException("订单发货失败，且订单状态回滚失败，请立即人工核对订单", rollbackStatusEx);
+                fatal.addSuppressed(failure);
+                throw fatal;
             }
-            throw ex;
+            throw failure;
         }
 
         Order latestOrder = orderRepository.findById(id)
@@ -302,6 +327,12 @@ public class OrderServiceImpl implements OrderService {
         saveLog(id, userId, user.getRealName(), "SHIP", "订单发货");
 
         return convertToVO(latestOrder, items, null);
+    }
+
+    private void rollbackShippingReceipts(List<InventoryDeductionReceipt> receipts, String orderNo) {
+        for (int i = receipts.size() - 1; i >= 0; i--) {
+            inventoryService.restoreInventoryDeduction(receipts.get(i), "订单发货回滚-" + orderNo);
+        }
     }
 
     @Override

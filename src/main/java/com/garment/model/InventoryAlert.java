@@ -5,6 +5,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Version;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Date;
@@ -30,10 +32,16 @@ public class InventoryAlert {
 
     private String status;
 
+    @Indexed(unique = true, sparse = true)
+    private String openAlertKey;
+
     @CreatedDate
     private Date createTime;
 
     private Date handleTime;
 
     private String handleBy;
+
+    @Version
+    private Long version;
 }

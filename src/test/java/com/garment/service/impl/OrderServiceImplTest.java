@@ -2,7 +2,9 @@ package com.garment.service.impl;
 
 import com.garment.dto.OrderApproveRequest;
 import com.garment.dto.OrderCreateRequest;
+import com.garment.dto.InventoryDeductionReceipt;
 import com.garment.dto.OrderItemDTO;
+import com.garment.dto.OrderUpdateRequest;
 import com.garment.dto.OrderVO;
 import com.garment.exception.BusinessException;
 import com.garment.model.FinishedProduct;
@@ -28,6 +30,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.OptimisticLockingFailureException;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -217,6 +220,42 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void updateOrderShouldTranslateOptimisticLockConflictWhenSaveFails() {
+        Order order = new Order();
+        order.setId("order-update-conflict");
+        order.setStatus("PENDING_APPROVAL");
+
+        OrderUpdateRequest request = new OrderUpdateRequest();
+        request.setRemark("new remark");
+
+        when(orderRepository.findById("order-update-conflict")).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class)))
+                .thenThrow(new OptimisticLockingFailureException("order update conflict"));
+
+        assertThatThrownBy(() -> orderService.updateOrder("order-update-conflict", request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("订单状态已变更");
+    }
+
+    @Test
+    void cancelOrderShouldThrowBusinessConflictWhenAtomicCancellationFails() {
+        Order order = new Order();
+        order.setId("order-cancel-conflict");
+        order.setStatus("APPROVED");
+
+        when(orderRepository.findById("order-cancel-conflict")).thenReturn(Optional.of(order));
+        when(mongoAtomicOpsService.transitionOrderStatus("order-cancel-conflict", "APPROVED", "CANCELLED", null))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.cancelOrder("order-cancel-conflict", "manager-cancel"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("订单状态已变更");
+
+        verify(userRepository, never()).findById("manager-cancel");
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
     void shipOrderShouldTransitionBeforeDeductingInventoryAndReloadPersistedOrder() {
         Order before = new Order();
         before.setId("order-ship-1");
@@ -256,6 +295,17 @@ class OrderServiceImplTest {
         when(mongoAtomicOpsService.transitionOrderStatus(eq("order-ship-1"), eq("APPROVED"), eq("SHIPPED"), any()))
                 .thenReturn(true);
         when(userRepository.findById("warehouse-1")).thenReturn(Optional.of(operator));
+        when(inventoryService.fifoDeductFinishedProductWithReceipt(eq("finished-1"), eq(3), any()))
+                .thenReturn(new InventoryDeductionReceipt(
+                        "FINISHED_PRODUCT",
+                        "finished-1",
+                        "T-shirt",
+                        3,
+                        false,
+                        Arrays.asList(
+                                new InventoryDeductionReceipt.LocationDeduction("A-01", 2, new Date(1000L)),
+                                new InventoryDeductionReceipt.LocationDeduction("B-01", 1, new Date(2000L))
+                        )));
 
         OrderVO result = orderService.shipOrder("order-ship-1", "warehouse-1");
 
@@ -265,7 +315,7 @@ class OrderServiceImplTest {
 
         InOrder inOrder = inOrder(mongoAtomicOpsService, inventoryService);
         inOrder.verify(mongoAtomicOpsService).transitionOrderStatus(eq("order-ship-1"), eq("APPROVED"), eq("SHIPPED"), any());
-        inOrder.verify(inventoryService).fifoDeductFinishedProduct("finished-1", 3, "订单发货-ORD20260415001 | 商品:T-shirt-Y1/White/M");
+        inOrder.verify(inventoryService).fifoDeductFinishedProductWithReceipt("finished-1", 3, "订单发货-ORD20260415001 | 商品:T-shirt-Y1/White/M");
 
         assertThat(result.getStatus()).isEqualTo("SHIPPED");
         assertThat(result.getShipTime()).isEqualTo(after.getShipTime());
@@ -339,7 +389,7 @@ class OrderServiceImplTest {
                 .thenReturn(true);
         doThrow(new RuntimeException("deduct failed"))
                 .when(inventoryService)
-                .fifoDeductFinishedProduct(eq("finished-rollback"), eq(2), any());
+                .fifoDeductFinishedProductWithReceipt(eq("finished-rollback"), eq(2), any());
 
         assertThatThrownBy(() -> orderService.shipOrder("order-ship-rollback", "warehouse-rollback"))
                 .isInstanceOf(RuntimeException.class)
@@ -352,6 +402,71 @@ class OrderServiceImplTest {
         assertThat(shipPayloadCaptor.getValue().getDate("shipTime")).isNotNull();
         assertThat(rollbackPayloadCaptor.getValue().containsKey("shipTime")).isTrue();
         assertThat(rollbackPayloadCaptor.getValue().get("shipTime")).isNull();
+    }
+
+    @Test
+    void shipOrderShouldRestorePreviouslyDeductedInventoryWhenLaterDeductionFails() {
+        Order before = new Order();
+        before.setId("order-ship-restore");
+        before.setOrderNo("ORD20260415005");
+        before.setStatus("APPROVED");
+
+        OrderItem firstItem = new OrderItem();
+        firstItem.setOrderId("order-ship-restore");
+        firstItem.setProductId("finished-a");
+        firstItem.setProductCode("A1");
+        firstItem.setProductName("卫衣");
+        firstItem.setColor("黑");
+        firstItem.setSize("L");
+        firstItem.setQuantity(2);
+
+        OrderItem secondItem = new OrderItem();
+        secondItem.setOrderId("order-ship-restore");
+        secondItem.setProductId("finished-b");
+        secondItem.setProductCode("B1");
+        secondItem.setProductName("长裤");
+        secondItem.setColor("蓝");
+        secondItem.setSize("M");
+        secondItem.setQuantity(1);
+
+        FinishedProduct firstProduct = new FinishedProduct();
+        firstProduct.setId("finished-a");
+        firstProduct.setQuantity(5);
+        firstProduct.setLocations(Collections.singletonList(new LocationInfo("A-01", 5, new Date(1000L))));
+
+        FinishedProduct secondProduct = new FinishedProduct();
+        secondProduct.setId("finished-b");
+        secondProduct.setQuantity(4);
+        secondProduct.setLocations(Collections.singletonList(new LocationInfo("B-01", 4, new Date(2000L))));
+
+        InventoryDeductionReceipt firstReceipt = new InventoryDeductionReceipt(
+                "FINISHED_PRODUCT",
+                "finished-a",
+                "卫衣",
+                2,
+                false,
+                Collections.singletonList(new InventoryDeductionReceipt.LocationDeduction("A-01", 2, new Date(1000L))));
+
+        when(orderRepository.findById("order-ship-restore")).thenReturn(Optional.of(before));
+        when(orderItemRepository.findByOrderId("order-ship-restore")).thenReturn(Arrays.asList(firstItem, secondItem));
+        when(finishedProductRepository.findById("finished-a")).thenReturn(Optional.of(firstProduct));
+        when(finishedProductRepository.findById("finished-b")).thenReturn(Optional.of(secondProduct));
+        when(mongoAtomicOpsService.transitionOrderStatus(eq("order-ship-restore"), eq("APPROVED"), eq("SHIPPED"), any()))
+                .thenReturn(true);
+        when(mongoAtomicOpsService.transitionOrderStatus(eq("order-ship-restore"), eq("SHIPPED"), eq("APPROVED"), any()))
+                .thenReturn(true);
+        when(inventoryService.fifoDeductFinishedProductWithReceipt(eq("finished-a"), eq(2), any()))
+                .thenReturn(firstReceipt);
+        doThrow(new RuntimeException("second deduct failed"))
+                .when(inventoryService)
+                .fifoDeductFinishedProductWithReceipt(eq("finished-b"), eq(1), any());
+
+        assertThatThrownBy(() -> orderService.shipOrder("order-ship-restore", "warehouse-restore"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("second deduct failed");
+
+        verify(inventoryService).restoreInventoryDeduction(eq(firstReceipt), eq("订单发货回滚-ORD20260415005"));
+        verify(mongoAtomicOpsService).transitionOrderStatus(eq("order-ship-restore"), eq("SHIPPED"), eq("APPROVED"), any());
     }
 
     @Test

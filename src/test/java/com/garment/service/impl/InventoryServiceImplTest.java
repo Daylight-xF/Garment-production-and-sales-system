@@ -1,9 +1,12 @@
 package com.garment.service.impl;
 
+import com.garment.dto.AlertHandleRequest;
 import com.garment.dto.FinishedProductVO;
+import com.garment.dto.InventoryDeductionReceipt;
 import com.garment.dto.StockInOutRequest;
 import com.garment.exception.BusinessException;
 import com.garment.model.FinishedProduct;
+import com.garment.model.InventoryAlert;
 import com.garment.model.InventoryRecord;
 import com.garment.model.LocationInfo;
 import com.garment.model.ProductDefinition;
@@ -24,6 +27,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
@@ -35,6 +40,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
@@ -196,6 +202,79 @@ class InventoryServiceImplTest {
         assertThat(latestSaved.getId()).isEqualTo("finished-3");
         assertThat(latestSaved.getLocations()).extracting(LocationInfo::getQuantity).containsExactly(13);
         assertThat(plan.getStockedInQuantity()).isEqualTo(5);
+    }
+
+    @Test
+    void stockInShouldReuseExistingFinishedProductWhenConcurrentCreateHitsDuplicateKey() {
+        ProductionPlan plan = buildPlan("plan-duplicate", "BATCH-DUP", "工装裤", "P900", "灰色", "L");
+        FinishedProduct existing = buildFinishedProduct("finished-dup", "BATCH-DUP", "工装裤", "P900", "灰色", "L");
+        existing.setQuantity(8);
+        existing.setLocations(new ArrayList<>(Collections.singletonList(new LocationInfo("A-01", 8, new Date()))));
+
+        User operator = new User();
+        operator.setId("admin-dup");
+        operator.setRealName("系统管理员");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("FINISHED_PRODUCT");
+        request.setItemId("plan-duplicate");
+        request.setQuantity(2);
+        request.setReason("生产批次BATCH-DUP入库 | 位置:A-01 | 并发重试");
+
+        when(productionPlanRepository.findById("plan-duplicate")).thenReturn(Optional.of(plan));
+        when(finishedProductRepository.findAll()).thenReturn(Collections.emptyList());
+        when(finishedProductRepository.findFirstByProductCodeAndNameAndColorAndSizeAndBatchNo("P900", "工装裤", "灰色", "L", "BATCH-DUP"))
+                .thenReturn(Optional.empty(), Optional.of(existing));
+        when(userRepository.findById("admin-dup")).thenReturn(Optional.of(operator));
+        when(finishedProductRepository.save(any(FinishedProduct.class)))
+                .thenThrow(new DuplicateKeyException("duplicate finished product"))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockIn(request, "admin-dup");
+
+        verify(finishedProductRepository, atLeastOnce())
+                .findFirstByProductCodeAndNameAndColorAndSizeAndBatchNo("P900", "工装裤", "灰色", "L", "BATCH-DUP");
+    }
+
+    @Test
+    void stockInShouldSupportExistingFinishedProductIdWithoutProductionPlan() {
+        FinishedProduct existing = buildFinishedProduct("finished-existing-stockin", "BATCH-EXIST", "连衣裙", "P777", "白色", "M");
+        existing.setQuantity(100);
+        existing.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("H-09", 90, new Date()),
+                new LocationInfo("H-08", 10, new Date())
+        )));
+
+        User operator = new User();
+        operator.setId("admin-existing");
+        operator.setRealName("Admin");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("FINISHED_PRODUCT");
+        request.setItemId("finished-existing-stockin");
+        request.setQuantity(10);
+        request.setReason("Manual stock in | 位置:H-08");
+
+        when(finishedProductRepository.findById("finished-existing-stockin")).thenReturn(Optional.of(existing));
+        when(userRepository.findById("admin-existing")).thenReturn(Optional.of(operator));
+        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockIn(request, "admin-existing");
+
+        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
+        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
+        FinishedProduct latestSaved = productCaptor.getAllValues().get(productCaptor.getAllValues().size() - 1);
+        assertThat(latestSaved.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(
+                        tuple("H-09", 90),
+                        tuple("H-08", 20)
+                );
+        assertThat(latestSaved.getQuantity()).isEqualTo(110);
+        verify(productionPlanRepository, never()).save(any(ProductionPlan.class));
     }
 
     @Test
@@ -368,6 +447,49 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void stockOutShouldUseFifoDeductionWhenRawMaterialHasLocationsButNoExplicitLocation() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-out-fifo");
+        material.setName("Cotton");
+        material.setQuantity(6);
+        material.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("A-01", 2, new Date(1000L)),
+                new LocationInfo("B-01", 4, new Date(2000L))
+        )));
+
+        User operator = new User();
+        operator.setId("warehouse-out-fifo");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-out-fifo");
+        request.setQuantity(3);
+        request.setReason("production plan quantity increase");
+
+        when(rawMaterialRepository.findById("raw-stock-out-fifo")).thenReturn(Optional.of(material));
+        when(userRepository.findById("warehouse-out-fifo")).thenReturn(Optional.of(operator));
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockOut(request, "warehouse-out-fifo");
+
+        verify(mongoAtomicOpsService, never()).changeRawMaterialQuantity("raw-stock-out-fifo", -3, 0);
+
+        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
+        verify(rawMaterialRepository).save(materialCaptor.capture());
+        RawMaterial savedMaterial = materialCaptor.getValue();
+        assertThat(savedMaterial.getQuantity()).isEqualTo(3);
+        assertThat(savedMaterial.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("B-01", 3));
+
+        ArgumentCaptor<InventoryRecord> recordCaptor = ArgumentCaptor.forClass(InventoryRecord.class);
+        verify(inventoryRecordRepository).save(recordCaptor.capture());
+        assertThat(recordCaptor.getValue().getReason()).contains("[FIFO:A-01(2)B-01(1)]");
+    }
+
+    @Test
     void fifoDeductFinishedProductShouldConsumeOldestLocationsFirst() {
         FinishedProduct product = buildFinishedProduct("finished-30", "BATCH-030", "T-shirt", "Y1", "white", "M");
         product.setAlertThreshold(1);
@@ -436,6 +558,132 @@ class InventoryServiceImplTest {
     }
 
     @Test
+    void fifoDeductRawMaterialShouldInitializeLegacyVersionWhenSaveHitsDuplicateKey() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-legacy");
+        material.setName("Legacy Cotton");
+        material.setQuantity(6);
+        material.setAlertThreshold(1);
+        material.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("A-01", 4, new Date(1000L)),
+                new LocationInfo("A-02", 2, new Date(2000L))
+        )));
+
+        when(rawMaterialRepository.findById("raw-legacy")).thenReturn(Optional.of(material));
+        when(rawMaterialRepository.save(any(RawMaterial.class)))
+                .thenAnswer(invocation -> {
+                    RawMaterial entity = invocation.getArgument(0);
+                    entity.setVersion(0L);
+                    throw new DuplicateKeyException("duplicate raw material");
+                })
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(mongoAtomicOpsService.initializeRawMaterialVersionIfMissing("raw-legacy")).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.fifoDeductRawMaterial("raw-legacy", 3, "production plan");
+
+        verify(mongoAtomicOpsService).initializeRawMaterialVersionIfMissing("raw-legacy");
+        assertThat(material.getQuantity()).isEqualTo(3);
+        assertThat(material.getVersion()).isEqualTo(0L);
+        assertThat(material.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("A-01", 1), tuple("A-02", 2));
+    }
+
+    @Test
+    void fifoDeductRawMaterialWithReceiptShouldReturnLocationDetails() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-receipt");
+        material.setName("Cotton");
+        material.setQuantity(6);
+        material.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("A-01", 4, new Date(1000L)),
+                new LocationInfo("B-01", 2, new Date(2000L))
+        )));
+
+        when(rawMaterialRepository.findById("raw-receipt")).thenReturn(Optional.of(material));
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        InventoryDeductionReceipt receipt = inventoryService.fifoDeductRawMaterialWithReceipt("raw-receipt", 5, "production plan");
+
+        assertThat(receipt).isNotNull();
+        assertThat(receipt.getItemType()).isEqualTo("RAW_MATERIAL");
+        assertThat(receipt.getItemId()).isEqualTo("raw-receipt");
+        assertThat(receipt.getQuantity()).isEqualTo(5);
+        assertThat(receipt.isTotalOnly()).isFalse();
+        assertThat(receipt.getLocationDeductions())
+                .extracting(InventoryDeductionReceipt.LocationDeduction::getLocation,
+                        InventoryDeductionReceipt.LocationDeduction::getQuantity)
+                .containsExactly(tuple("A-01", 4), tuple("B-01", 1));
+
+        assertThat(material.getQuantity()).isEqualTo(1);
+        assertThat(material.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("B-01", 1));
+    }
+
+    @Test
+    void fifoDeductRawMaterialWithReceiptShouldMarkTotalOnlyWhenNoLocationsExist() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-total-only");
+        material.setName("Cotton");
+        material.setQuantity(8);
+        material.setLocations(Collections.emptyList());
+
+        when(rawMaterialRepository.findById("raw-total-only")).thenReturn(Optional.of(material));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-total-only", -3, 0)).thenReturn(true);
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        InventoryDeductionReceipt receipt = inventoryService.fifoDeductRawMaterialWithReceipt("raw-total-only", 3, "production plan");
+
+        assertThat(receipt).isNotNull();
+        assertThat(receipt.isTotalOnly()).isTrue();
+        assertThat(receipt.getQuantity()).isEqualTo(3);
+        assertThat(receipt.getLocationDeductions()).isEmpty();
+    }
+
+    @Test
+    void restoreInventoryDeductionShouldRestoreRawMaterialLocationsFromReceipt() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-restore");
+        material.setName("Cotton");
+        material.setQuantity(1);
+        material.setLocations(new ArrayList<>(Collections.singletonList(
+                new LocationInfo("B-01", 1, new Date(2000L))
+        )));
+
+        InventoryDeductionReceipt receipt = new InventoryDeductionReceipt(
+                "RAW_MATERIAL",
+                "raw-restore",
+                "Cotton",
+                5,
+                false,
+                Arrays.asList(
+                        new InventoryDeductionReceipt.LocationDeduction("A-01", 4, new Date(1000L)),
+                        new InventoryDeductionReceipt.LocationDeduction("B-01", 1, new Date(2000L))
+                )
+        );
+
+        when(rawMaterialRepository.findById("raw-restore")).thenReturn(Optional.of(material));
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.restoreInventoryDeduction(receipt, "plan rejected");
+
+        assertThat(material.getQuantity()).isEqualTo(6);
+        assertThat(material.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("B-01", 2), tuple("A-01", 4));
+
+        ArgumentCaptor<InventoryRecord> recordCaptor = ArgumentCaptor.forClass(InventoryRecord.class);
+        verify(inventoryRecordRepository).save(recordCaptor.capture());
+        assertThat(recordCaptor.getValue().getInventoryType()).isEqualTo("IN");
+        assertThat(recordCaptor.getValue().getQuantity()).isEqualTo(5);
+        assertThat(recordCaptor.getValue().getReason()).contains("plan rejected");
+    }
+
+    @Test
     void fifoDeductFinishedProductShouldFailWhenAtomicTotalQuantityDeductionMisses() {
         FinishedProduct product = buildFinishedProduct("finished-atomic-miss", "BATCH-032", "Hoodie", "W1", "black", "XL");
         product.setQuantity(2);
@@ -468,6 +716,56 @@ class InventoryServiceImplTest {
 
         verify(finishedProductRepository, never()).save(any(FinishedProduct.class));
         verify(inventoryRecordRepository, never()).save(any(InventoryRecord.class));
+    }
+
+    @Test
+    void stockOutShouldIgnoreDuplicatePendingAlertCreation() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-alert-dup");
+        material.setName("Cotton");
+        material.setQuantity(5);
+        material.setAlertThreshold(2);
+        material.setLocations(new ArrayList<>());
+
+        User operator = new User();
+        operator.setId("warehouse-alert");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-alert-dup");
+        request.setQuantity(3);
+        request.setReason("manual stock out");
+
+        when(rawMaterialRepository.findById("raw-alert-dup")).thenReturn(Optional.of(material));
+        when(userRepository.findById("warehouse-alert")).thenReturn(Optional.of(operator));
+        when(mongoAtomicOpsService.changeRawMaterialQuantity("raw-alert-dup", -3, 0)).thenReturn(true);
+        when(inventoryAlertRepository.save(any(InventoryAlert.class)))
+                .thenThrow(new DuplicateKeyException("duplicate pending alert"));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockOut(request, "warehouse-alert");
+
+        verify(inventoryAlertRepository).save(any(InventoryAlert.class));
+        verify(inventoryRecordRepository).save(any(InventoryRecord.class));
+    }
+
+    @Test
+    void handleAlertShouldThrowBusinessConflictWhenConcurrentHandleFails() {
+        InventoryAlert alert = new InventoryAlert();
+        alert.setId("alert-1");
+        alert.setStatus("PENDING");
+
+        AlertHandleRequest request = new AlertHandleRequest();
+        request.setHandleBy("manager-1");
+
+        when(inventoryAlertRepository.findById("alert-1")).thenReturn(Optional.of(alert));
+        when(inventoryAlertRepository.save(any(InventoryAlert.class)))
+                .thenThrow(new OptimisticLockingFailureException("alert conflict"));
+
+        assertThatThrownBy(() -> inventoryService.handleAlert("alert-1", request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("预警状态已变更");
     }
 
     private ProductionPlan buildPlan(String id, String batchNo, String productName, String productCode, String color, String size) {

@@ -124,13 +124,21 @@ public class MongoAtomicOpsService {
     }
 
     public boolean initializeRawMaterialVersionIfMissing(String materialId) {
-        Query query = Query.query(Criteria.where("_id").is(materialId).and("version").exists(false));
+        Query query = Query.query(Criteria.where("_id").is(materialId));
+        query.addCriteria(new Criteria().orOperator(
+                Criteria.where("version").exists(false),
+                Criteria.where("version").is(null)
+        ));
         Update update = new Update().set("version", 0L).currentDate("updateTime");
         return mongoTemplate.updateFirst(query, update, RawMaterial.class).getModifiedCount() > 0;
     }
 
     public boolean initializeFinishedProductVersionIfMissing(String productId) {
-        Query query = Query.query(Criteria.where("_id").is(productId).and("version").exists(false));
+        Query query = Query.query(Criteria.where("_id").is(productId));
+        query.addCriteria(new Criteria().orOperator(
+                Criteria.where("version").exists(false),
+                Criteria.where("version").is(null)
+        ));
         Update update = new Update().set("version", 0L).currentDate("updateTime");
         return mongoTemplate.updateFirst(query, update, FinishedProduct.class).getModifiedCount() > 0;
     }

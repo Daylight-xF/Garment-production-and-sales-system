@@ -61,7 +61,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             task.setAssigneeName(assigneeUser.getRealName());
         }
 
-        ProductionTask saved = productionTaskRepository.save(task);
+        ProductionTask saved = saveTaskWithConflictTranslation(task);
         return convertToVO(saved);
     }
 
@@ -133,7 +133,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             task.setStatus(request.getStatus());
         }
 
-        ProductionTask saved = productionTaskRepository.save(task);
+        ProductionTask saved = saveTaskWithConflictTranslation(task);
         return convertToVO(saved);
     }
 
@@ -156,7 +156,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             task.setStatus("IN_PROGRESS");
         }
 
-        ProductionTask saved = productionTaskRepository.save(task);
+        ProductionTask saved = saveTaskWithConflictTranslation(task);
         return convertToVO(saved);
     }
 
@@ -169,6 +169,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             throw new BusinessException("进度必须在0-100之间");
         }
 
+        TaskProgressSnapshot snapshot = new TaskProgressSnapshot(task);
         task.setProgress(progress);
 
         if (task.getPlanQuantity() != null && task.getPlanQuantity() > 0) {
@@ -185,9 +186,13 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             task.setStatus("IN_PROGRESS");
         }
 
-        ProductionTask saved = productionTaskRepository.save(task);
-
-        updatePlanCompletedQuantityEnhanced(task.getPlanId());
+        ProductionTask saved = saveTaskWithConflictTranslation(task);
+        try {
+            updatePlanCompletedQuantityEnhanced(task.getPlanId());
+        } catch (RuntimeException ex) {
+            rollbackTaskProgress(task, snapshot, ex);
+            throw ex;
+        }
 
         return convertToVO(saved);
     }
@@ -209,6 +214,26 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
             } catch (OptimisticLockingFailureException ex) {
                 throw new BusinessException("生产计划汇总已更新，请刷新后重试");
             }
+        }
+    }
+
+    private ProductionTask saveTaskWithConflictTranslation(ProductionTask task) {
+        try {
+            return productionTaskRepository.save(task);
+        } catch (OptimisticLockingFailureException ex) {
+            throw new BusinessException("生产任务已发生变更，请刷新后重试");
+        }
+    }
+
+    private void rollbackTaskProgress(ProductionTask task, TaskProgressSnapshot snapshot, RuntimeException originalEx) {
+        snapshot.restore(task);
+        try {
+            productionTaskRepository.save(task);
+        } catch (OptimisticLockingFailureException rollbackEx) {
+            IllegalStateException fatal = new IllegalStateException("任务进度更新失败，且任务状态回滚失败，请立即人工核对");
+            fatal.addSuppressed(originalEx);
+            fatal.addSuppressed(rollbackEx);
+            throw fatal;
         }
     }
 
@@ -242,6 +267,27 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
         }
 
         return migratedCount;
+    }
+
+    private static class TaskProgressSnapshot {
+        private final Integer progress;
+        private final Integer completedQuantity;
+        private final String status;
+        private final Date endDate;
+
+        private TaskProgressSnapshot(ProductionTask task) {
+            this.progress = task.getProgress();
+            this.completedQuantity = task.getCompletedQuantity();
+            this.status = task.getStatus();
+            this.endDate = task.getEndDate();
+        }
+
+        private void restore(ProductionTask task) {
+            task.setProgress(progress);
+            task.setCompletedQuantity(completedQuantity);
+            task.setStatus(status);
+            task.setEndDate(endDate);
+        }
     }
 
     private TaskVO convertToVO(ProductionTask task) {
