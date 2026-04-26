@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -259,7 +260,7 @@ public class OrderServiceImpl implements OrderService {
         List<OrderItem> items = orderItemRepository.findByOrderId(id);
         List<ShippingDeductionPlan> deductionPlans = buildShippingDeductionPlans(items);
         List<String> insufficientItems = deductionPlans.stream()
-                .filter(plan -> plan.product == null || plan.availableQuantity < plan.requiredQuantity)
+                .filter(plan -> plan.products.isEmpty() || plan.availableQuantity < plan.requiredQuantity)
                 .map(plan -> String.format("%s（需 %d，现有 %d）", plan.itemLabel, plan.requiredQuantity, plan.availableQuantity))
                 .collect(Collectors.toList());
         if (!insufficientItems.isEmpty()) {
@@ -283,12 +284,7 @@ public class OrderServiceImpl implements OrderService {
                 if (plan.requiredQuantity <= 0) {
                     continue;
                 }
-                InventoryDeductionReceipt receipt = inventoryService.fifoDeductFinishedProductWithReceipt(
-                        plan.product.getId(),
-                        plan.requiredQuantity,
-                        "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
-                );
-                receipts.add(receipt);
+                deductShippingPlan(order, plan, receipts);
             }
         } catch (RuntimeException ex) {
             RuntimeException failure = ex;
@@ -332,6 +328,35 @@ public class OrderServiceImpl implements OrderService {
     private void rollbackShippingReceipts(List<InventoryDeductionReceipt> receipts, String orderNo) {
         for (int i = receipts.size() - 1; i >= 0; i--) {
             inventoryService.restoreInventoryDeduction(receipts.get(i), "订单发货回滚-" + orderNo);
+        }
+    }
+
+    private void deductShippingPlan(Order order, ShippingDeductionPlan plan, List<InventoryDeductionReceipt> receipts) {
+        int remainingQuantity = plan.requiredQuantity;
+        for (FinishedProduct product : plan.products) {
+            if (remainingQuantity <= 0) {
+                break;
+            }
+
+            int availableQuantity = getAvailableFinishedProductQuantity(product);
+            if (availableQuantity <= 0) {
+                continue;
+            }
+
+            int deductionQuantity = Math.min(remainingQuantity, availableQuantity);
+            InventoryDeductionReceipt receipt = inventoryService.fifoDeductFinishedProductWithReceipt(
+                    product.getId(),
+                    deductionQuantity,
+                    "订单发货-" + order.getOrderNo() + " | 商品:" + plan.itemLabel
+            );
+            receipts.add(receipt);
+            remainingQuantity -= deductionQuantity;
+        }
+
+        if (remainingQuantity > 0) {
+            throw new BusinessException(String.format(
+                    "订单发货失败，以下商品库存不足：%s（需 %d，现有 %d）",
+                    plan.itemLabel, plan.requiredQuantity, plan.requiredQuantity - remainingQuantity));
         }
     }
 
@@ -507,22 +532,37 @@ public class OrderServiceImpl implements OrderService {
                 continue;
             }
 
-            FinishedProduct matchedProduct = resolveFinishedProduct(item);
+            List<FinishedProduct> matchedProducts = resolveFinishedProducts(item);
             String itemLabel = formatOrderItemLabel(item);
-            String planKey = matchedProduct != null ? matchedProduct.getId() : "missing:" + itemLabel;
+            String planKey = buildShippingDeductionPlanKey(item);
 
             ShippingDeductionPlan plan = plans.computeIfAbsent(planKey,
-                    key -> new ShippingDeductionPlan(matchedProduct, itemLabel));
+                    key -> new ShippingDeductionPlan(matchedProducts, itemLabel));
             plan.requiredQuantity += requiredQuantity;
         }
 
-        plans.values().forEach(plan -> plan.availableQuantity = getAvailableFinishedProductQuantity(plan.product));
+        plans.values().forEach(plan -> plan.availableQuantity = plan.products.stream()
+                .mapToInt(this::getAvailableFinishedProductQuantity)
+                .sum());
         return new ArrayList<>(plans.values());
     }
 
-    private FinishedProduct resolveFinishedProduct(OrderItem item) {
+    private String buildShippingDeductionPlanKey(OrderItem item) {
         if (StringUtils.hasText(item.getProductId())) {
-            return finishedProductRepository.findById(item.getProductId()).orElse(null);
+            return "id:" + normalizeText(item.getProductId());
+        }
+        return "identity:"
+                + normalizeText(item.getProductCode()) + "|"
+                + normalizeText(item.getProductName()) + "|"
+                + normalizeText(item.getColor()) + "|"
+                + normalizeText(item.getSize());
+    }
+
+    private List<FinishedProduct> resolveFinishedProducts(OrderItem item) {
+        if (StringUtils.hasText(item.getProductId())) {
+            List<FinishedProduct> products = new ArrayList<>();
+            finishedProductRepository.findById(item.getProductId()).ifPresent(products::add);
+            return products;
         }
 
         return finishedProductRepository.findAll().stream()
@@ -530,8 +570,8 @@ public class OrderServiceImpl implements OrderService {
                 .filter(product -> sameText(product.getName(), item.getProductName()))
                 .filter(product -> sameText(product.getColor(), item.getColor()))
                 .filter(product -> sameText(product.getSize(), item.getSize()))
-                .findFirst()
-                .orElse(null);
+                .sorted(Comparator.comparing(FinishedProduct::getCreateTime, Comparator.nullsLast(Date::compareTo)))
+                .collect(Collectors.toList());
     }
 
     private int getAvailableFinishedProductQuantity(FinishedProduct product) {
@@ -568,13 +608,13 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private static class ShippingDeductionPlan {
-        private final FinishedProduct product;
+        private final List<FinishedProduct> products;
         private final String itemLabel;
         private int requiredQuantity;
         private int availableQuantity;
 
-        private ShippingDeductionPlan(FinishedProduct product, String itemLabel) {
-            this.product = product;
+        private ShippingDeductionPlan(List<FinishedProduct> products, String itemLabel) {
+            this.products = products;
             this.itemLabel = itemLabel;
         }
     }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { canCompletePlan, canEditPlan } from './productionPlanActions.js'
+import { canCompletePlan, canEditPlan } from '../../src/utils/productionPlanActions.js'
 
 assert.equal(canEditPlan({
   status: 'IN_PROGRESS',

@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import javax.validation.constraints.Min;
-import javax.validation.constraints.NotBlank;
 
 @Data
 @NoArgsConstructor
@@ -14,7 +13,6 @@ import javax.validation.constraints.NotBlank;
 @Builder
 public class OrderItemDTO {
 
-    @NotBlank(message = "产品ID不能为空")
     private String productId;
 
     private String productCode;

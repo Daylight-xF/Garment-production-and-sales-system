@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const source = readFileSync(join(__dirname, 'RawMaterial.vue'), 'utf8')
+const source = readFileSync(join(__dirname, '../../../src/views/inventory/RawMaterial.vue'), 'utf8')
 
 const quantityItem = source.match(/<el-form-item v-if="dialogType === 'add'" label="库存数量"[\s\S]*?<\/el-form-item>/)?.[0] || ''
 const locationItem = source.match(/<el-form-item label="存放位置"[\s\S]*?<\/el-form-item>/)?.[0] || ''

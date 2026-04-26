@@ -323,6 +323,83 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void shipOrderShouldDeductAcrossMatchingFinishedProductBatchesWhenProductIdIsBlank() {
+        Order before = new Order();
+        before.setId("order-ship-batches");
+        before.setOrderNo("ORD20260426006");
+        before.setStatus("APPROVED");
+
+        Order after = new Order();
+        after.setId("order-ship-batches");
+        after.setOrderNo("ORD20260426006");
+        after.setStatus("SHIPPED");
+        after.setShipTime(new Date(5000L));
+
+        OrderItem item = new OrderItem();
+        item.setOrderId("order-ship-batches");
+        item.setProductCode("n2");
+        item.setProductName("连衣裙");
+        item.setColor("粉红色");
+        item.setSize("M");
+        item.setQuantity(110);
+
+        FinishedProduct firstBatch = new FinishedProduct();
+        firstBatch.setId("batch-1310");
+        firstBatch.setBatchNo("PC-20260426-1310");
+        firstBatch.setProductCode("n2");
+        firstBatch.setName("连衣裙");
+        firstBatch.setColor("粉红色");
+        firstBatch.setSize("M");
+        firstBatch.setQuantity(99);
+        firstBatch.setLocations(Collections.singletonList(new LocationInfo("D-06", 99, new Date(1000L))));
+        firstBatch.setCreateTime(new Date(1000L));
+
+        FinishedProduct secondBatch = new FinishedProduct();
+        secondBatch.setId("batch-1311");
+        secondBatch.setBatchNo("PC-20260426-1311");
+        secondBatch.setProductCode("n2");
+        secondBatch.setName("连衣裙");
+        secondBatch.setColor("粉红色");
+        secondBatch.setSize("M");
+        secondBatch.setQuantity(100);
+        secondBatch.setLocations(Collections.singletonList(new LocationInfo("G-01", 100, new Date(2000L))));
+        secondBatch.setCreateTime(new Date(2000L));
+
+        User operator = new User();
+        operator.setId("warehouse-batches");
+        operator.setRealName("仓库管理员");
+
+        when(orderRepository.findById("order-ship-batches")).thenReturn(Optional.of(before), Optional.of(after));
+        when(orderItemRepository.findByOrderId("order-ship-batches")).thenReturn(Arrays.asList(item));
+        when(finishedProductRepository.findAll()).thenReturn(Arrays.asList(firstBatch, secondBatch));
+        when(mongoAtomicOpsService.transitionOrderStatus(eq("order-ship-batches"), eq("APPROVED"), eq("SHIPPED"), any()))
+                .thenReturn(true);
+        when(userRepository.findById("warehouse-batches")).thenReturn(Optional.of(operator));
+        when(inventoryService.fifoDeductFinishedProductWithReceipt(eq("batch-1310"), eq(99), any()))
+                .thenReturn(new InventoryDeductionReceipt(
+                        "FINISHED_PRODUCT",
+                        "batch-1310",
+                        "连衣裙",
+                        99,
+                        false,
+                        Collections.singletonList(new InventoryDeductionReceipt.LocationDeduction("D-06", 99, new Date(1000L)))));
+        when(inventoryService.fifoDeductFinishedProductWithReceipt(eq("batch-1311"), eq(11), any()))
+                .thenReturn(new InventoryDeductionReceipt(
+                        "FINISHED_PRODUCT",
+                        "batch-1311",
+                        "连衣裙",
+                        11,
+                        false,
+                        Collections.singletonList(new InventoryDeductionReceipt.LocationDeduction("G-01", 11, new Date(2000L)))));
+
+        OrderVO result = orderService.shipOrder("order-ship-batches", "warehouse-batches");
+
+        assertThat(result.getStatus()).isEqualTo("SHIPPED");
+        verify(inventoryService).fifoDeductFinishedProductWithReceipt(eq("batch-1310"), eq(99), any());
+        verify(inventoryService).fifoDeductFinishedProductWithReceipt(eq("batch-1311"), eq(11), any());
+    }
+
+    @Test
     void shipOrderShouldFailWhenFinishedProductInventoryIsInsufficient() {
         Order order = new Order();
         order.setId("order-ship-2");

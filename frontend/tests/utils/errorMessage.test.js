@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { getErrorMessage } from './errorMessage.js'
+import { getErrorMessage } from '../../src/utils/errorMessage.js'
 
 assert.equal(
   getErrorMessage(new Error('订单发货失败，以下商品库存不足：连衣裙-n2/撒啊/L（需 10，现有 6）'), '发货失败'),

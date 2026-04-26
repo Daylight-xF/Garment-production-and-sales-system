@@ -5,7 +5,7 @@ import {
   buildFinishedProductPayload,
   formatFinishedProductDefinitionLabel,
   getFinishedProductFormDisplayName
-} from './finishedProductDefinition.js'
+} from '../../src/utils/finishedProductDefinition.js'
 
 assert.equal(
   formatFinishedProductDefinitionLabel({ productName: '卫衣', productCode: 'W001' }),

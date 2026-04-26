@@ -141,7 +141,7 @@
         label-width="80px"
       >
         <el-form-item label="批次号" prop="batchNo">
-          <el-input v-model="productForm.batchNo" placeholder="请输入批次号" />
+          <el-input v-model="productForm.batchNo" placeholder="请输入批次号" :disabled="dialogType === 'edit'" />
         </el-form-item>
         <el-form-item label="名称" :prop="dialogType === 'add' ? 'productDefinitionId' : 'name'">
           <el-select
@@ -527,7 +527,9 @@ const thresholdFormRules = {
 }
 
 onMounted(() => {
-  fetchProductDefinitions()
+  if (canCreateOrEditProduct.value) {
+    fetchProductDefinitions()
+  }
   fetchFinishedProductCategories()
   fetchList()
 })

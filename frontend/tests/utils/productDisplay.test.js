@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 let module = {}
 
 try {
-  module = await import('./productDisplay.js')
+  module = await import('../../src/utils/productDisplay.js')
 } catch {
   module = {}
 }

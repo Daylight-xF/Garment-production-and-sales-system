@@ -5,8 +5,9 @@ import {
   getAvailableProductOptions,
   getAvailableColors,
   getAvailableSizes,
-  findMatchedFinishedProduct
-} from './orderItemSelection.js'
+  findMatchedFinishedProduct,
+  getSelectionCostPrice
+} from '../../src/utils/orderItemSelection.js'
 
 const inventory = [
   { id: '1', name: 'TShirt', productCode: 'n1', color: 'Red', size: 'M', costPrice: 20 },
@@ -52,5 +53,29 @@ assert.equal(
 
 assert.equal(
   findMatchedFinishedProduct(inventory, { selectedProductKey: '', color: 'White', size: 'M' }),
+  null
+)
+
+const multiBatchInventory = [
+  { id: 'b1', name: 'Dress', productCode: 'n2', color: 'Pink', size: 'M', costPrice: 6 },
+  { id: 'b2', name: 'Dress', productCode: 'n2', color: 'Pink', size: 'M', costPrice: 6 },
+  { id: 'b3', name: 'Dress', productCode: 'n2', color: 'Pink', size: 'L', costPrice: 8 }
+]
+
+assert.equal(
+  findMatchedFinishedProduct(multiBatchInventory, { selectedProductKey: 'Dress||n2', color: 'Pink', size: 'M' }),
+  null
+)
+
+assert.equal(
+  getSelectionCostPrice(multiBatchInventory, { selectedProductKey: 'Dress||n2', color: 'Pink', size: 'M' }),
+  6
+)
+
+assert.equal(
+  getSelectionCostPrice([
+    ...multiBatchInventory,
+    { id: 'b4', name: 'Dress', productCode: 'n2', color: 'Pink', size: 'M', costPrice: 7 }
+  ], { selectedProductKey: 'Dress||n2', color: 'Pink', size: 'M' }),
   null
 )

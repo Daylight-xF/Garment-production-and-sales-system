@@ -10,19 +10,10 @@
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="客户" prop="customerId">
-          <el-select
-            v-model="form.customerId"
-            placeholder="请选择客户"
-            filterable
-            style="width: 400px"
-            @change="onCustomerChange"
-          >
-            <el-option
-              v-for="customer in customerList"
-              :key="customer.id"
-              :label="customer.name"
-              :value="customer.id"
-            />
+          <el-select v-model="form.customerId" placeholder="请选择客户" filterable style="width: 400px"
+            @change="onCustomerChange">
+            <el-option v-for="customer in customerList" :key="customer.id" :label="customer.name"
+              :value="customer.id" />
           </el-select>
         </el-form-item>
 
@@ -30,55 +21,28 @@
           <el-table :data="form.items" border style="width: 1360px">
             <el-table-column label="产品" min-width="190">
               <template #default="{ row, $index }">
-                <el-select
-                  v-model="row.selectedProductKey"
-                  placeholder="选择产品"
-                  filterable
-                  clearable
-                  @change="(value) => onProductKeyChange($index, value)"
-                >
-                  <el-option
-                    v-for="option in getProductOptions(row)"
-                    :key="option.key"
-                    :label="option.label"
-                    :value="option.key"
-                  />
+                <el-select v-model="row.selectedProductKey" placeholder="选择产品" filterable clearable
+                  @change="(value) => onProductKeyChange($index, value)">
+                  <el-option v-for="option in getProductOptions(row)" :key="option.key" :label="option.label"
+                    :value="option.key" />
                 </el-select>
               </template>
             </el-table-column>
 
             <el-table-column label="颜色" width="150">
               <template #default="{ row, $index }">
-                <el-select
-                  v-model="row.color"
-                  placeholder="颜色"
-                  clearable
-                  @change="(value) => onColorChange($index, value)"
-                >
-                  <el-option
-                    v-for="color in getColorOptions(row)"
-                    :key="color"
-                    :label="color"
-                    :value="color"
-                  />
+                <el-select v-model="row.color" placeholder="颜色" clearable
+                  @change="(value) => onColorChange($index, value)">
+                  <el-option v-for="color in getColorOptions(row)" :key="color" :label="color" :value="color" />
                 </el-select>
               </template>
             </el-table-column>
 
             <el-table-column label="尺码" width="150">
               <template #default="{ row, $index }">
-                <el-select
-                  v-model="row.size"
-                  placeholder="尺码"
-                  clearable
-                  @change="(value) => onSizeChange($index, value)"
-                >
-                  <el-option
-                    v-for="size in getSizeOptions(row)"
-                    :key="size"
-                    :label="size"
-                    :value="size"
-                  />
+                <el-select v-model="row.size" placeholder="尺码" clearable
+                  @change="(value) => onSizeChange($index, value)">
+                  <el-option v-for="size in getSizeOptions(row)" :key="size" :label="size" :value="size" />
                 </el-select>
               </template>
             </el-table-column>
@@ -97,10 +61,7 @@
 
             <el-table-column label="单件成本" width="120" align="center">
               <template #default="{ row }">
-                <span
-                  class="cost-pill cost-pill--table"
-                  :class="{ 'cost-empty': row.costPrice == null }"
-                >
+                <span class="cost-pill cost-pill--table" :class="{ 'cost-empty': row.costPrice == null }">
                   {{ formatCurrency(row.costPrice) }}
                 </span>
               </template>
@@ -108,10 +69,7 @@
 
             <el-table-column label="金额" width="175" align="center">
               <template #default="{ row }">
-                <span
-                  class="amount-card amount-card--table"
-                  :class="{ 'amount-card--empty': !row.amount }"
-                >
+                <span class="amount-card amount-card--table" :class="{ 'amount-card--empty': !row.amount }">
                   <span class="amount-card__label">合计</span>
                   <span class="amount-card__value">{{ formatCurrency(row.amount) }}</span>
                 </span>
@@ -153,11 +111,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createOrder } from '../../api/order'
+import { getErrorMessage } from '../../utils/errorMessage'
 import {
   getAvailableColors,
   getAvailableProductOptions,
   getAvailableSizes,
   findMatchedFinishedProduct,
+  getSelectionCostPrice,
   parseProductKey
 } from '../../utils/orderItemSelection'
 import request from '../../utils/request'
@@ -225,6 +185,7 @@ function calcAmount(row) {
 
 function syncMatchedItem(row) {
   const matched = findMatchedFinishedProduct(productList.value, row)
+  const selectionCostPrice = getSelectionCostPrice(productList.value, row)
   const selectedMeta = parseProductKey(row.selectedProductKey)
 
   row.productName = selectedMeta.productName || ''
@@ -232,7 +193,7 @@ function syncMatchedItem(row) {
 
   if (!matched) {
     row.productId = ''
-    row.costPrice = null
+    row.costPrice = selectionCostPrice
     calcAmount(row)
     return
   }
@@ -242,7 +203,7 @@ function syncMatchedItem(row) {
   row.productCode = matched.productCode || selectedMeta.productCode || ''
   row.color = matched.color || ''
   row.size = matched.size || ''
-  row.costPrice = matched.costPrice ?? null
+  row.costPrice = matched.costPrice ?? selectionCostPrice ?? null
   row.unitPrice = matched.price ?? row.unitPrice ?? 0
   calcAmount(row)
 }
@@ -310,7 +271,7 @@ async function submitForm() {
       return
     }
 
-    const invalidItem = touchedItems.find(item => !item.productId || !item.color || !item.size)
+    const invalidItem = touchedItems.find(item => !item.selectedProductKey || !item.color || !item.size)
     if (invalidItem) {
       ElMessage.warning('请为每个订单项完整选择产品、颜色和尺码')
       return
@@ -336,6 +297,7 @@ async function submitForm() {
     router.push('/order/list')
   } catch (error) {
     if (error !== false) {
+      ElMessage.error(getErrorMessage(error, '订单创建失败'))
       console.error(error)
     }
   } finally {

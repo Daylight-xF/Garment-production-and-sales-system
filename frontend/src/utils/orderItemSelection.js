@@ -50,6 +50,14 @@ function uniqueSortedValues(items, field) {
   return Array.from(new Set(items.map(item => item[field]).filter(Boolean))).sort()
 }
 
+function getMatchingFinishedProducts(inventory, selection) {
+  if (!hasCompleteSelection(selection)) {
+    return []
+  }
+
+  return inventory.filter(item => matchesSelection(item, selection))
+}
+
 export function buildProductOptions(inventory) {
   const unique = new Map()
 
@@ -106,10 +114,15 @@ export function getAvailableSizes(inventory, selection) {
 }
 
 export function findMatchedFinishedProduct(inventory, selection) {
-  if (!hasCompleteSelection(selection)) {
-    return null
-  }
-
-  const matches = inventory.filter(item => matchesSelection(item, selection))
+  const matches = getMatchingFinishedProducts(inventory, selection)
   return matches.length === 1 ? matches[0] : null
+}
+
+export function getSelectionCostPrice(inventory, selection) {
+  const matchedCosts = getMatchingFinishedProducts(inventory, selection)
+    .map(item => item.costPrice)
+    .filter(value => value != null)
+  const uniqueCosts = Array.from(new Set(matchedCosts))
+
+  return uniqueCosts.length === 1 ? uniqueCosts[0] : null
 }
