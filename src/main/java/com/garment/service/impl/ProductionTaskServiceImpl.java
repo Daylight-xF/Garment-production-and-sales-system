@@ -77,7 +77,7 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
                     }
                     boolean matchAssignee = true;
                     if (StringUtils.hasText(assignee)) {
-                        matchAssignee = assignee.equals(task.getAssignee());
+                        matchAssignee = matchesAssignee(task, assignee);
                     }
                     boolean matchStatus = true;
                     if (StringUtils.hasText(status)) {
@@ -103,6 +103,17 @@ public class ProductionTaskServiceImpl implements ProductionTaskService {
                 .collect(Collectors.toList());
 
         return new PageImpl<>(voList, pageable, filtered.size());
+    }
+
+    private boolean matchesAssignee(ProductionTask task, String keyword) {
+        String normalizedKeyword = keyword.trim().toLowerCase();
+        return containsIgnoreCase(task.getAssignee(), normalizedKeyword)
+                || containsIgnoreCase(task.getAssigneeName(), normalizedKeyword);
+    }
+
+    private boolean containsIgnoreCase(String value, String normalizedKeyword) {
+        return StringUtils.hasText(value)
+                && value.toLowerCase().contains(normalizedKeyword);
     }
 
     @Override

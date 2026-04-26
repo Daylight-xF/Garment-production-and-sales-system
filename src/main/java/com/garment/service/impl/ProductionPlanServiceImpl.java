@@ -163,7 +163,7 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
 
     private List<TaskQuantitySnapshot> captureTaskQuantitySnapshots(String planId) {
         List<ProductionTask> tasks = productionTaskRepository.findByPlanId(planId);
-        if (tasks.isEmpty()) {
+        if (tasks == null || tasks.isEmpty()) {
             return new ArrayList<>();
         }
         return tasks.stream()
@@ -171,9 +171,9 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                 .collect(Collectors.toList());
     }
 
-    private void syncTaskPlanQuantities(List<TaskQuantitySnapshot> taskSnapshots, String planId, int newPlanQuantity) {
+    private int syncTaskPlanQuantities(List<TaskQuantitySnapshot> taskSnapshots, int newPlanQuantity) {
         if (taskSnapshots.isEmpty()) {
-            return;
+            return 0;
         }
         for (TaskQuantitySnapshot snapshot : taskSnapshots) {
             ProductionTask task = snapshot.getTask();
@@ -182,19 +182,45 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
                     && task.getCompletedQuantity() != null) {
                 int newProgress = (int) Math.round(task.getCompletedQuantity() * 100.0 / task.getPlanQuantity());
                 task.setProgress(Math.min(newProgress, 100));
+                syncTaskStatusAfterQuantityChange(task);
             }
             productionTaskRepository.save(task);
         }
 
-        int totalCompleted = taskSnapshots.stream()
+        return taskSnapshots.stream()
                 .map(TaskQuantitySnapshot::getTask)
                 .mapToInt(t -> t.getCompletedQuantity() != null ? t.getCompletedQuantity() : 0)
                 .sum();
+    }
 
-        ProductionPlan plan = productionPlanRepository.findById(planId).orElse(null);
-        if (plan != null) {
-            plan.setCompletedQuantity(totalCompleted);
-            productionPlanRepository.save(plan);
+    private int resolveCompletedQuantity(ProductionPlan plan, List<TaskQuantitySnapshot> taskSnapshots) {
+        int planCompleted = plan.getCompletedQuantity() != null ? plan.getCompletedQuantity() : 0;
+        int taskCompleted = taskSnapshots.stream()
+                .map(TaskQuantitySnapshot::getTask)
+                .mapToInt(t -> t.getCompletedQuantity() != null ? t.getCompletedQuantity() : 0)
+                .sum();
+        return Math.max(planCompleted, taskCompleted);
+    }
+
+    private void syncTaskStatusAfterQuantityChange(ProductionTask task) {
+        int planQuantity = task.getPlanQuantity() != null ? task.getPlanQuantity() : 0;
+        int completedQuantity = task.getCompletedQuantity() != null ? task.getCompletedQuantity() : 0;
+        if (planQuantity <= 0) {
+            return;
+        }
+
+        if (completedQuantity >= planQuantity) {
+            task.setProgress(100);
+            task.setStatus("COMPLETED");
+            if (task.getEndDate() == null) {
+                task.setEndDate(new Date());
+            }
+            return;
+        }
+
+        if ("COMPLETED".equals(task.getStatus()) || completedQuantity > 0) {
+            task.setStatus("IN_PROGRESS");
+            task.setEndDate(null);
         }
     }
 
@@ -490,14 +516,23 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         try {
             Integer oldQuantity = plan.getQuantity();
             if (request.getQuantity() != null) {
-                int quantityDiff = request.getQuantity() - oldQuantity;
-                if (quantityDiff != 0) {
-                    adjustmentResult = adjustInventoryForQuantityChange(plan, oldQuantity, request.getQuantity());
-                    plan.setMaterialDeductionReceipts(adjustmentResult.getUpdatedReceipts());
-                    taskRollbackSnapshots = captureTaskQuantitySnapshots(plan.getId());
-                    syncTaskPlanQuantities(taskRollbackSnapshots, plan.getId(), request.getQuantity());
+                int newQuantity = request.getQuantity();
+                List<TaskQuantitySnapshot> quantityTaskSnapshots = captureTaskQuantitySnapshots(plan.getId());
+                int completedQuantity = resolveCompletedQuantity(plan, quantityTaskSnapshots);
+                if (newQuantity < completedQuantity) {
+                    throw new BusinessException("计划数量不能小于当前已完成生产数量：" + completedQuantity);
                 }
-                plan.setQuantity(request.getQuantity());
+
+                int quantityDiff = newQuantity - oldQuantity;
+                if (quantityDiff != 0) {
+                    adjustmentResult = adjustInventoryForQuantityChange(plan, oldQuantity, newQuantity);
+                    plan.setMaterialDeductionReceipts(adjustmentResult.getUpdatedReceipts());
+                    taskRollbackSnapshots = quantityTaskSnapshots;
+                    if (!taskRollbackSnapshots.isEmpty()) {
+                        plan.setCompletedQuantity(syncTaskPlanQuantities(taskRollbackSnapshots, newQuantity));
+                    }
+                }
+                plan.setQuantity(newQuantity);
             }
 
             if (request.getUnit() != null) {
@@ -1049,12 +1084,16 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
         private final Integer planQuantity;
         private final Integer completedQuantity;
         private final Integer progress;
+        private final String status;
+        private final Date endDate;
 
         private TaskQuantitySnapshot(ProductionTask task) {
             this.task = task;
             this.planQuantity = task.getPlanQuantity();
             this.completedQuantity = task.getCompletedQuantity();
             this.progress = task.getProgress();
+            this.status = task.getStatus();
+            this.endDate = task.getEndDate();
         }
 
         private ProductionTask getTask() {
@@ -1065,6 +1104,8 @@ public class ProductionPlanServiceImpl implements ProductionPlanService {
             task.setPlanQuantity(planQuantity);
             task.setCompletedQuantity(completedQuantity);
             task.setProgress(progress);
+            task.setStatus(status);
+            task.setEndDate(endDate);
         }
     }
 

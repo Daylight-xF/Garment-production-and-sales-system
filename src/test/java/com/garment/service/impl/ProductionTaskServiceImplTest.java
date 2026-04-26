@@ -14,7 +14,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -39,6 +42,48 @@ class ProductionTaskServiceImplTest {
 
     @InjectMocks
     private ProductionTaskServiceImpl productionTaskService;
+
+    @Test
+    void getTaskListShouldFilterAssigneeByVisibleName() {
+        ProductionTask matched = new ProductionTask();
+        matched.setId("task-1");
+        matched.setAssignee("user-1");
+        matched.setAssigneeName("生产者08");
+
+        ProductionTask unmatched = new ProductionTask();
+        unmatched.setId("task-2");
+        unmatched.setAssignee("user-2");
+        unmatched.setAssigneeName("生产者05");
+
+        when(productionTaskRepository.findAll()).thenReturn(Arrays.asList(matched, unmatched));
+
+        Page<com.garment.dto.TaskVO> result = productionTaskService.getTaskList(
+                "", "生产者08", "", PageRequest.of(0, 10));
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getContent().get(0).getId()).isEqualTo("task-1");
+    }
+
+    @Test
+    void getTaskListShouldStillFilterAssigneeById() {
+        ProductionTask matched = new ProductionTask();
+        matched.setId("task-id-1");
+        matched.setAssignee("user-1");
+        matched.setAssigneeName("生产者08");
+
+        ProductionTask unmatched = new ProductionTask();
+        unmatched.setId("task-id-2");
+        unmatched.setAssignee("user-2");
+        unmatched.setAssigneeName("生产者05");
+
+        when(productionTaskRepository.findAll()).thenReturn(Arrays.asList(matched, unmatched));
+
+        Page<com.garment.dto.TaskVO> result = productionTaskService.getTaskList(
+                "", "user-1", "", PageRequest.of(0, 10));
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getContent().get(0).getId()).isEqualTo("task-id-1");
+    }
 
     @Test
     void updateTaskShouldTranslateOptimisticLockConflictWhenSaveFails() {

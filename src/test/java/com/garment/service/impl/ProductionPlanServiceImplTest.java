@@ -656,6 +656,136 @@ class ProductionPlanServiceImplTest {
     }
 
     @Test
+    void updatePlanShouldSavePlanOnceWhenSyncingTaskQuantities() {
+        ProductionPlan plan = approvedPlan("plan-update-sync-once", "IN_PROGRESS");
+        plan.setQuantity(12);
+        plan.setCompletedQuantity(4);
+        plan.setProductDefinitionId("def-update-sync-once");
+        ProductDefinition definition = new ProductDefinition();
+        definition.setId("def-update-sync-once");
+        definition.setMaterials(Collections.emptyList());
+
+        ProductionTask task = new ProductionTask();
+        task.setId("task-sync-once");
+        task.setPlanId("plan-update-sync-once");
+        task.setPlanQuantity(12);
+        task.setCompletedQuantity(5);
+        task.setProgress(42);
+
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(10);
+
+        when(productionPlanRepository.findById("plan-update-sync-once")).thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-update-sync-once")).thenReturn(Optional.of(definition));
+        when(productionTaskRepository.findByPlanId("plan-update-sync-once"))
+                .thenReturn(Collections.singletonList(task));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productionPlanService.updatePlan("plan-update-sync-once", request);
+
+        ArgumentCaptor<ProductionPlan> planCaptor = ArgumentCaptor.forClass(ProductionPlan.class);
+        verify(productionPlanRepository).save(planCaptor.capture());
+        assertThat(planCaptor.getValue().getQuantity()).isEqualTo(10);
+        assertThat(planCaptor.getValue().getCompletedQuantity()).isEqualTo(5);
+    }
+
+    @Test
+    void updatePlanShouldCompleteTaskWhenReducedToCompletedQuantity() {
+        ProductionPlan plan = approvedPlan("plan-update-task-complete", "IN_PROGRESS");
+        plan.setQuantity(10);
+        plan.setCompletedQuantity(5);
+        plan.setProductDefinitionId("def-update-task-complete");
+        ProductDefinition definition = new ProductDefinition();
+        definition.setId("def-update-task-complete");
+        definition.setMaterials(Collections.emptyList());
+
+        ProductionTask task = new ProductionTask();
+        task.setId("task-complete-after-reduce");
+        task.setPlanId("plan-update-task-complete");
+        task.setPlanQuantity(10);
+        task.setCompletedQuantity(5);
+        task.setProgress(50);
+        task.setStatus("IN_PROGRESS");
+
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(5);
+
+        when(productionPlanRepository.findById("plan-update-task-complete")).thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-update-task-complete")).thenReturn(Optional.of(definition));
+        when(productionTaskRepository.findByPlanId("plan-update-task-complete"))
+                .thenReturn(Collections.singletonList(task));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productionPlanService.updatePlan("plan-update-task-complete", request);
+
+        ArgumentCaptor<ProductionTask> taskCaptor = ArgumentCaptor.forClass(ProductionTask.class);
+        verify(productionTaskRepository).save(taskCaptor.capture());
+        assertThat(taskCaptor.getValue().getProgress()).isEqualTo(100);
+        assertThat(taskCaptor.getValue().getStatus()).isEqualTo("COMPLETED");
+        assertThat(taskCaptor.getValue().getEndDate()).isNotNull();
+    }
+
+    @Test
+    void updatePlanShouldReopenCompletedTaskWhenQuantityIncreaseMakesItIncomplete() {
+        ProductionPlan plan = approvedPlan("plan-update-task-reopen", "IN_PROGRESS");
+        plan.setQuantity(5);
+        plan.setCompletedQuantity(5);
+        plan.setProductDefinitionId("def-update-task-reopen");
+        ProductDefinition definition = new ProductDefinition();
+        definition.setId("def-update-task-reopen");
+        definition.setMaterials(Collections.emptyList());
+
+        ProductionTask task = new ProductionTask();
+        task.setId("task-reopen-after-increase");
+        task.setPlanId("plan-update-task-reopen");
+        task.setPlanQuantity(5);
+        task.setCompletedQuantity(5);
+        task.setProgress(100);
+        task.setStatus("COMPLETED");
+        task.setEndDate(new java.util.Date());
+
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(10);
+
+        when(productionPlanRepository.findById("plan-update-task-reopen")).thenReturn(Optional.of(plan));
+        when(productDefinitionRepository.findById("def-update-task-reopen")).thenReturn(Optional.of(definition));
+        when(productionTaskRepository.findByPlanId("plan-update-task-reopen"))
+                .thenReturn(Collections.singletonList(task));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productionPlanService.updatePlan("plan-update-task-reopen", request);
+
+        ArgumentCaptor<ProductionTask> taskCaptor = ArgumentCaptor.forClass(ProductionTask.class);
+        verify(productionTaskRepository).save(taskCaptor.capture());
+        assertThat(taskCaptor.getValue().getProgress()).isEqualTo(50);
+        assertThat(taskCaptor.getValue().getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(taskCaptor.getValue().getEndDate()).isNull();
+    }
+
+    @Test
+    void updatePlanShouldRejectQuantityBelowCompletedProduction() {
+        ProductionPlan plan = approvedPlan("plan-update-below-completed", "IN_PROGRESS");
+        plan.setQuantity(12);
+        plan.setCompletedQuantity(6);
+        plan.setProductDefinitionId("def-below-completed");
+
+        PlanUpdateRequest request = new PlanUpdateRequest();
+        request.setQuantity(5);
+
+        when(productionPlanRepository.findById("plan-update-below-completed")).thenReturn(Optional.of(plan));
+
+        assertThatThrownBy(() -> productionPlanService.updatePlan("plan-update-below-completed", request))
+                .isInstanceOf(BusinessException.class);
+
+        verify(productionPlanRepository, never()).save(any(ProductionPlan.class));
+        verify(productDefinitionRepository, never()).findById(any());
+        verify(productionTaskRepository, never()).save(any(ProductionTask.class));
+        verify(inventoryService, never()).fifoDeductRawMaterialWithReceipt(
+                any(), any(Integer.class), any());
+        verify(inventoryService, never()).restoreInventoryDeduction(any(), any());
+    }
+
+    @Test
     void updatePlanShouldRejectCancelledPlanEdits() {
         ProductionPlan plan = approvedPlan("plan-update-cancelled", "CANCELLED");
         PlanUpdateRequest request = new PlanUpdateRequest();
@@ -706,7 +836,6 @@ class ProductionPlanServiceImplTest {
             return savedTask;
         });
         when(productionPlanRepository.save(any(ProductionPlan.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0))
                 .thenThrow(new RuntimeException("plan save failed"));
 
         assertThatThrownBy(() -> productionPlanService.updatePlan("plan-update-task-rollback", request))

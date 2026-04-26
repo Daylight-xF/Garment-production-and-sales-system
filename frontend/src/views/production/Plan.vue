@@ -74,7 +74,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button v-if="row.status !== 'COMPLETED' && row.status !== 'CANCELLED' && !canCompletePlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="canEditPlan(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status === 'PENDING'"
               type="success"
@@ -413,6 +413,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Lock, RefreshRight } from '@element-plus/icons-vue'
 import { getPlanList, createPlan, updatePlan, deletePlan, approvePlan, startProduction, completePlan, getPlanTasks, updateTaskProgress } from '../../api/production'
 import { getProductDefinitionList } from '../../api/productDefinition'
+import { canCompletePlan, canEditPlan } from '../../utils/productionPlanActions'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -760,10 +761,6 @@ async function handleViewTasks(row) {
   } finally {
     loadingTasks.value = false
   }
-}
-
-function canCompletePlan(row) {
-  return row.completedQuantity >= row.quantity
 }
 
 async function handleCompletePlan(row) {
