@@ -54,6 +54,13 @@ export function getFinishedProductList(params) {
   })
 }
 
+export function getFinishedProductCategories() {
+  return request({
+    url: '/inventory/finished-products/categories',
+    method: 'get'
+  })
+}
+
 export function getFinishedProductDetail(id) {
   return request({
     url: `/inventory/finished-products/${id}`,

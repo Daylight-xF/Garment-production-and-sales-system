@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -89,6 +90,12 @@ public class InventoryController {
         result.put("size", size);
 
         return Result.success(result);
+    }
+
+    @GetMapping("/finished-products/categories")
+    @PreAuthorize("hasAnyAuthority('INVENTORY_READ', 'ORDER_CREATE')")
+    public Result<List<String>> getFinishedProductCategories() {
+        return Result.success(inventoryService.getFinishedProductCategories());
     }
 
     @GetMapping("/finished-products/{id}")

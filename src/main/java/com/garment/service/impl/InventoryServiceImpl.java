@@ -194,6 +194,17 @@ public class InventoryServiceImpl implements InventoryService {
         return new PageImpl<>(voList, pageable, filtered.size());
     }
 
+    @Override
+    public List<String> getFinishedProductCategories() {
+        return finishedProductRepository.findAll().stream()
+                .map(FinishedProduct::getCategory)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
     private void sortFinishedProductsByCreateTimeDesc(List<FinishedProduct> products) {
         products.sort((left, right) -> {
             Date leftCreateTime = left.getCreateTime();

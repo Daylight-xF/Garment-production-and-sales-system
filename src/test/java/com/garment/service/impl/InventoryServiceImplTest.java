@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +79,24 @@ class InventoryServiceImplTest {
 
     @InjectMocks
     private InventoryServiceImpl inventoryService;
+
+    @Test
+    void getFinishedProductCategoriesShouldReturnDistinctExistingCategories() {
+        FinishedProduct suit = new FinishedProduct();
+        suit.setCategory("套装");
+        FinishedProduct bottom = new FinishedProduct();
+        bottom.setCategory("下装");
+        FinishedProduct duplicateBottom = new FinishedProduct();
+        duplicateBottom.setCategory("下装");
+        FinishedProduct blank = new FinishedProduct();
+        blank.setCategory(" ");
+
+        when(finishedProductRepository.findAll()).thenReturn(Arrays.asList(suit, bottom, duplicateBottom, blank));
+
+        List<String> categories = inventoryService.getFinishedProductCategories();
+
+        assertThat(categories).containsExactly("下装", "套装");
+    }
 
     @Test
     void createRawMaterialShouldRejectBlankLocation() {

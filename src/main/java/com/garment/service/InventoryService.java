@@ -4,6 +4,8 @@ import com.garment.dto.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface InventoryService {
 
     Page<RawMaterialVO> getRawMaterialList(String name, String category, Pageable pageable);
@@ -17,6 +19,8 @@ public interface InventoryService {
     void deleteRawMaterial(String id);
 
     Page<FinishedProductVO> getFinishedProductList(String name, String category, Pageable pageable);
+
+    List<String> getFinishedProductCategories();
 
     FinishedProductVO getFinishedProductById(String id);
 

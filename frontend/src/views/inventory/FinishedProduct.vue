@@ -12,9 +12,12 @@
         </el-form-item>
         <el-form-item label="类别">
           <el-select v-model="searchForm.category" placeholder="全部" clearable style="width: 140px">
-            <el-option label="上衣" value="上衣" />
-            <el-option label="裤子" value="裤子" />
-            <el-option label="裙子" value="裙子" />
+            <el-option
+              v-for="category in finishedProductCategoryOptions"
+              :key="category"
+              :label="category"
+              :value="category"
+            />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -380,6 +383,7 @@ import { useUserStore } from '../../store/user'
 import { getProductDefinitionList } from '../../api/productDefinition'
 import {
   getFinishedProductList,
+  getFinishedProductCategories,
   createFinishedProduct,
   updateFinishedProduct,
   deleteFinishedProduct,
@@ -399,6 +403,7 @@ const userStore = useUserStore()
 const loading = ref(false)
 const submitLoading = ref(false)
 const productList = ref([])
+const finishedProductCategoryOptions = ref([])
 const productDefinitionList = ref([])
 const addDialogVisible = ref(false)
 const stockDialogVisible = ref(false)
@@ -522,8 +527,18 @@ const thresholdFormRules = {
 
 onMounted(() => {
   fetchProductDefinitions()
+  fetchFinishedProductCategories()
   fetchList()
 })
+
+async function fetchFinishedProductCategories() {
+  try {
+    const res = await getFinishedProductCategories()
+    finishedProductCategoryOptions.value = (res.data || res || []).filter(Boolean)
+  } catch (error) {
+    console.error('failed to fetch finished product categories', error)
+  }
+}
 
 async function fetchList() {
   loading.value = true
@@ -564,6 +579,7 @@ function handleReset() {
   searchForm.keyword = ''
   searchForm.category = ''
   pagination.page = 1
+  fetchFinishedProductCategories()
   fetchList()
 }
 
@@ -645,6 +661,7 @@ async function handleSubmit() {
         ElMessage.success('编辑成品成功')
       }
       addDialogVisible.value = false
+      fetchFinishedProductCategories()
       fetchList()
     } catch (error) {
       ElMessage.error(error.response?.data?.message || '操作失败')
@@ -745,6 +762,7 @@ async function handleDelete(row) {
     })
     await deleteFinishedProduct(row.id)
     ElMessage.success('删除成功')
+    fetchFinishedProductCategories()
     fetchList()
   } catch (error) {
     if (error !== 'cancel') {
