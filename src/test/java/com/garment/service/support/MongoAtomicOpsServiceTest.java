@@ -2,6 +2,7 @@ package com.garment.service.support;
 
 import com.garment.model.CounterSequence;
 import com.garment.model.FinishedProduct;
+import com.garment.model.InventoryAlert;
 import com.garment.model.Order;
 import com.garment.model.ProductionPlan;
 import com.garment.model.RawMaterial;
@@ -152,6 +153,34 @@ class MongoAtomicOpsServiceTest {
         assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(new Document("_id", "finished-1"));
         assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
                 new Document("$inc", new Document("quantity", 3).append("version", 1L))
+                        .append("$currentDate", new Document("updateTime", true))
+        );
+    }
+
+    @Test
+    void handleInventoryAlertShouldAtomicallyMarkPendingAlertHandledAndClearOpenKey() {
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class),
+                any(FindAndModifyOptions.class), eq(InventoryAlert.class)))
+                .thenReturn(new InventoryAlert());
+
+        Date handleTime = new Date(123456789L);
+        boolean changed = mongoAtomicOpsService.handleInventoryAlert("alert-legacy", "manager-1", handleTime);
+
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(queryCaptor.capture(), updateCaptor.capture(),
+                any(FindAndModifyOptions.class), eq(InventoryAlert.class));
+
+        assertThat(changed).isTrue();
+        assertThat(queryCaptor.getValue().getQueryObject()).isEqualTo(
+                new Document("_id", "alert-legacy").append("status", "PENDING")
+        );
+        assertThat(updateCaptor.getValue().getUpdateObject()).isEqualTo(
+                new Document("$set", new Document("status", "HANDLED")
+                        .append("handleTime", handleTime)
+                        .append("handleBy", "manager-1"))
+                        .append("$unset", new Document("openAlertKey", 1))
+                        .append("$inc", new Document("version", 1L))
                         .append("$currentDate", new Document("updateTime", true))
         );
     }

@@ -8,7 +8,6 @@ import com.garment.service.InventoryService;
 import com.garment.service.support.MongoAtomicOpsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -226,17 +225,34 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public FinishedProductVO createFinishedProduct(FinishedProductCreateRequest request) {
+        int initialQuantity = request.getQuantity() != null ? request.getQuantity() : 0;
+        if (initialQuantity < 0) {
+            throw new BusinessException("库存数量不能小于0");
+        }
+
         FinishedProduct product = new FinishedProduct();
+        product.setBatchNo(request.getBatchNo());
         product.setName(request.getName());
+        product.setProductCode(request.getProductCode());
         product.setCategory(request.getCategory());
         product.setColor(request.getColor());
         product.setSize(request.getSize());
         product.setUnit(request.getUnit());
-        product.setQuantity(request.getQuantity() != null ? request.getQuantity() : 0);
+        product.setQuantity(initialQuantity);
         product.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
         product.setPrice(request.getPrice());
         product.setCostPrice(request.getCostPrice());
         product.setDescription(request.getDescription());
+
+        List<LocationInfo> locations = new ArrayList<>();
+        if (initialQuantity > 0 && StringUtils.hasText(request.getLocation())) {
+            LocationInfo info = new LocationInfo();
+            info.setLocation(request.getLocation().trim());
+            info.setQuantity(initialQuantity);
+            info.setCreatedAt(new Date());
+            locations.add(info);
+        }
+        product.setLocations(locations);
 
         FinishedProduct saved = finishedProductRepository.save(product);
         return convertToFinishedProductVO(saved);
@@ -603,17 +619,18 @@ public class InventoryServiceImpl implements InventoryService {
             throw new BusinessException("该预警已处理");
         }
 
+        Date handleTime = new Date();
+        boolean handled = mongoAtomicOpsService.handleInventoryAlert(id, request.getHandleBy(), handleTime);
+        if (!handled) {
+            throw new BusinessException("预警状态已变更，请刷新后重试");
+        }
+
         alert.setStatus("HANDLED");
-        alert.setHandleTime(new Date());
+        alert.setHandleTime(handleTime);
         alert.setHandleBy(request.getHandleBy());
         alert.setOpenAlertKey(null);
 
-        try {
-            InventoryAlert saved = inventoryAlertRepository.save(alert);
-            return convertToInventoryAlertVO(saved);
-        } catch (OptimisticLockingFailureException ex) {
-            throw new BusinessException("预警状态已变更，请刷新后重试");
-        }
+        return convertToInventoryAlertVO(alert);
     }
 
     @Override

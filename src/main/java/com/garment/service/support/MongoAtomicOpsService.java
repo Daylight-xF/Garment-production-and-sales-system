@@ -2,6 +2,7 @@ package com.garment.service.support;
 
 import com.garment.model.CounterSequence;
 import com.garment.model.FinishedProduct;
+import com.garment.model.InventoryAlert;
 import com.garment.model.Order;
 import com.garment.model.ProductionPlan;
 import com.garment.model.RawMaterial;
@@ -154,6 +155,23 @@ public class MongoAtomicOpsService {
                 update,
                 FindAndModifyOptions.options().returnNew(true),
                 FinishedProduct.class
+        ) != null;
+    }
+
+    public boolean handleInventoryAlert(String alertId, String handleBy, Date handleTime) {
+        Query query = Query.query(Criteria.where("_id").is(alertId).and("status").is("PENDING"));
+        Update update = new Update()
+                .set("status", "HANDLED")
+                .set("handleTime", handleTime)
+                .set("handleBy", handleBy)
+                .unset("openAlertKey")
+                .inc("version", 1L)
+                .currentDate("updateTime");
+        return mongoTemplate.findAndModify(
+                query,
+                update,
+                FindAndModifyOptions.options().returnNew(true),
+                InventoryAlert.class
         ) != null;
     }
 

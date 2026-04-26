@@ -1,6 +1,7 @@
 package com.garment.service.impl;
 
 import com.garment.dto.AlertHandleRequest;
+import com.garment.dto.FinishedProductCreateRequest;
 import com.garment.dto.FinishedProductVO;
 import com.garment.dto.InventoryDeductionReceipt;
 import com.garment.dto.RawMaterialCreateRequest;
@@ -29,7 +30,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -165,6 +165,36 @@ class InventoryServiceImplTest {
                 .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
                 .containsExactly(tuple("H-01", 90), tuple("gg", 10));
         assertThat(saved.getQuantity()).isEqualTo(100);
+    }
+
+    @Test
+    void createFinishedProductShouldPersistBatchCodeAndInitialLocation() {
+        FinishedProductCreateRequest request = new FinishedProductCreateRequest();
+        request.setBatchNo("MANUAL-BATCH-001");
+        request.setName("Dress");
+        request.setProductCode("D001");
+        request.setCategory("Suit");
+        request.setColor("Red");
+        request.setSize("M");
+        request.setUnit("件");
+        request.setQuantity(10);
+        request.setLocation("A-01");
+
+        when(finishedProductRepository.save(any(FinishedProduct.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        FinishedProductVO vo = inventoryService.createFinishedProduct(request);
+
+        ArgumentCaptor<FinishedProduct> productCaptor = ArgumentCaptor.forClass(FinishedProduct.class);
+        verify(finishedProductRepository, atLeastOnce()).save(productCaptor.capture());
+        FinishedProduct saved = productCaptor.getValue();
+
+        assertThat(saved.getBatchNo()).isEqualTo("MANUAL-BATCH-001");
+        assertThat(saved.getProductCode()).isEqualTo("D001");
+        assertThat(saved.getQuantity()).isEqualTo(10);
+        assertThat(saved.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("A-01", 10));
+        assertThat(vo.getBatchNo()).isEqualTo("MANUAL-BATCH-001");
     }
 
     @Test
@@ -962,12 +992,33 @@ class InventoryServiceImplTest {
         request.setHandleBy("manager-1");
 
         when(inventoryAlertRepository.findById("alert-1")).thenReturn(Optional.of(alert));
-        when(inventoryAlertRepository.save(any(InventoryAlert.class)))
-                .thenThrow(new OptimisticLockingFailureException("alert conflict"));
+        when(mongoAtomicOpsService.handleInventoryAlert(any(String.class), any(String.class), any(Date.class)))
+                .thenReturn(false);
 
         assertThatThrownBy(() -> inventoryService.handleAlert("alert-1", request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("预警状态已变更");
+    }
+
+    @Test
+    void handleAlertShouldUseAtomicUpdateForLegacyAlertWithoutVersion() {
+        InventoryAlert alert = new InventoryAlert();
+        alert.setId("alert-legacy");
+        alert.setStatus("PENDING");
+        alert.setOpenAlertKey("RAW_MATERIAL:raw-1");
+        alert.setVersion(null);
+
+        AlertHandleRequest request = new AlertHandleRequest();
+        request.setHandleBy("manager-1");
+
+        when(inventoryAlertRepository.findById("alert-legacy")).thenReturn(Optional.of(alert));
+        when(mongoAtomicOpsService.handleInventoryAlert(any(String.class), any(String.class), any(Date.class)))
+                .thenReturn(true);
+
+        inventoryService.handleAlert("alert-legacy", request);
+
+        verify(mongoAtomicOpsService).handleInventoryAlert(any(String.class), any(String.class), any(Date.class));
+        verify(inventoryAlertRepository, never()).save(any(InventoryAlert.class));
     }
 
     private ProductionPlan buildPlan(String id, String batchNo, String productName, String productCode, String color, String size) {

@@ -398,6 +398,7 @@ import {
   formatFinishedProductDefinitionLabel,
   getFinishedProductFormDisplayName
 } from '../../utils/finishedProductDefinition'
+import { getErrorMessage } from '../../utils/errorMessage'
 
 const userStore = useUserStore()
 const loading = ref(false)
@@ -664,7 +665,7 @@ async function handleSubmit() {
       fetchFinishedProductCategories()
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -720,7 +721,7 @@ async function handleStockSubmit() {
       stockDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -746,7 +747,7 @@ async function handleThresholdSubmit() {
       thresholdDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -766,7 +767,7 @@ async function handleDelete(row) {
     fetchList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(error, '删除失败'))
     }
   }
 }
@@ -831,7 +832,7 @@ async function handleMoveSubmit() {
     closeMovePanel()
     fetchList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '移动失败')
+    ElMessage.error(getErrorMessage(error, '移动失败'))
   } finally {
     moveLoading.value = false
   }
