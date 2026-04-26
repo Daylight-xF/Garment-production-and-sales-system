@@ -131,13 +131,13 @@
         <el-form-item label="单位" prop="unit">
           <el-input v-model="materialForm.unit" placeholder="请输入单位" />
         </el-form-item>
-        <el-form-item v-if="dialogType === 'add'" label="库存数量" prop="quantity" :required="dialogType === 'add'">
-          <el-input-number v-model="materialForm.quantity" :min="1" style="width: 100%" />
+        <el-form-item v-if="dialogType === 'add'" label="库存数量" prop="quantity">
+          <el-input-number v-model="materialForm.quantity" :min="0" style="width: 100%" />
         </el-form-item>
         <el-form-item v-if="dialogType === 'add'" label="预警阈值" prop="alertThreshold">
           <el-input-number v-model="materialForm.alertThreshold" :min="0" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="存放位置" prop="location" :required="dialogType === 'add'">
+        <el-form-item label="存放位置" prop="location">
           <el-input
             v-if="dialogType === 'add'"
             v-model="materialForm.location"
@@ -324,6 +324,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Switch, Rank, Close } from '@element-plus/icons-vue'
 import { getRawMaterialStockMaxQuantity } from '../../utils/rawMaterialStock'
+import { getErrorMessage } from '../../utils/errorMessage'
 import {
   getRawMaterialList,
   createRawMaterial,
@@ -370,7 +371,7 @@ const materialForm = reactive({
   category: '',
   specification: '',
   unit: '',
-  quantity: 1,
+  quantity: 0,
   alertThreshold: 0,
   location: '',
   locations: [],
@@ -428,30 +429,6 @@ const availableTargetLocations = computed(() => {
 
 const materialFormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  quantity: [
-    {
-      validator: (rule, value, callback) => {
-        if (dialogType.value === 'add' && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
-          callback(new Error('请输入大于0的库存数量'))
-          return
-        }
-        callback()
-      },
-      trigger: 'change'
-    }
-  ],
-  location: [
-    {
-      validator: (rule, value, callback) => {
-        if (dialogType.value === 'add' && !String(value || '').trim()) {
-          callback(new Error('请输入存放位置'))
-          return
-        }
-        callback()
-      },
-      trigger: 'blur'
-    }
-  ]
 }
 
 const stockFormRules = {
@@ -519,7 +496,7 @@ function handleAdd() {
     category: '',
     specification: '',
     unit: '',
-    quantity: 1,
+    quantity: 0,
     alertThreshold: 0,
     location: '',
     locations: [],
@@ -564,7 +541,7 @@ async function handleSubmit() {
       addDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -620,7 +597,7 @@ async function handleStockSubmit() {
       stockDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -646,7 +623,7 @@ async function handleThresholdSubmit() {
       thresholdDialogVisible.value = false
       fetchList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -665,7 +642,7 @@ async function handleDelete(row) {
     fetchList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(error, '删除失败'))
     }
   }
 }
@@ -730,7 +707,7 @@ async function handleMoveSubmit() {
     closeMovePanel()
     fetchList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '移动失败')
+    ElMessage.error(getErrorMessage(error, '移动失败'))
   } finally {
     moveLoading.value = false
   }

@@ -25,7 +25,7 @@ public class ProductDefinitionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PRODUCT_DEFINITION_READ')")
+    @PreAuthorize("hasAnyAuthority('PRODUCT_DEFINITION_READ', 'INVENTORY_IN')")
     public Result<Map<String, Object>> getProductDefinitionList(
             @RequestParam(defaultValue = "") String name,
             @RequestParam(defaultValue = "") String category,

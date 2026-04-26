@@ -11,6 +11,11 @@ assert.equal(
   '库存不足'
 )
 
+assert.equal(
+  getErrorMessage(new Error('用户名已存在'), '注册失败，请稍后重试'),
+  '用户名已存在'
+)
+
 assert.equal(getErrorMessage({}, '发货失败'), '发货失败')
 
 console.log('errorMessage tests passed')

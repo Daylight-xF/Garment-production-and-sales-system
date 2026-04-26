@@ -82,11 +82,9 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public RawMaterialVO createRawMaterial(RawMaterialCreateRequest request) {
-        if (!StringUtils.hasText(request.getLocation())) {
-            throw new BusinessException("存放位置不能为空");
-        }
-        if (request.getQuantity() == null || request.getQuantity() <= 0) {
-            throw new BusinessException("库存数量必须大于0");
+        int initialQuantity = request.getQuantity() != null ? request.getQuantity() : 0;
+        if (initialQuantity < 0) {
+            throw new BusinessException("库存数量不能小于0");
         }
 
         RawMaterial material = new RawMaterial();
@@ -94,16 +92,18 @@ public class InventoryServiceImpl implements InventoryService {
         material.setCategory(request.getCategory());
         material.setSpecification(request.getSpecification());
         material.setUnit(request.getUnit());
-        material.setQuantity(request.getQuantity());
+        material.setQuantity(initialQuantity);
         material.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
         material.setSupplier(request.getSupplier());
 
         List<LocationInfo> locations = new ArrayList<>();
-        LocationInfo info = new LocationInfo();
-        info.setLocation(request.getLocation().trim());
-        info.setQuantity(request.getQuantity());
-        info.setCreatedAt(new Date());
-        locations.add(info);
+        if (initialQuantity > 0 && StringUtils.hasText(request.getLocation())) {
+            LocationInfo info = new LocationInfo();
+            info.setLocation(request.getLocation().trim());
+            info.setQuantity(initialQuantity);
+            info.setCreatedAt(new Date());
+            locations.add(info);
+        }
         material.setLocations(locations);
 
         material.setPrice(request.getPrice());
@@ -132,23 +132,18 @@ public class InventoryServiceImpl implements InventoryService {
         }
         if (StringUtils.hasText(request.getLocation())) {
             List<LocationInfo> locations = material.getLocations();
-            if (locations == null) {
+            if (locations == null || locations.isEmpty()) {
                 locations = new ArrayList<>();
+                int currentQuantity = material.getQuantity() != null ? material.getQuantity() : 0;
+                if (currentQuantity > 0) {
+                    LocationInfo info = new LocationInfo();
+                    info.setLocation(request.getLocation());
+                    info.setQuantity(currentQuantity);
+                    info.setCreatedAt(new Date());
+                    locations.add(info);
+                }
+                material.setLocations(locations);
             }
-            LocationInfo existing = locations.stream()
-                    .filter(l -> request.getLocation().equals(l.getLocation()))
-                    .findFirst()
-                    .orElse(null);
-            if (existing != null) {
-                existing.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
-            } else {
-                LocationInfo info = new LocationInfo();
-                info.setLocation(request.getLocation());
-                info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
-                info.setCreatedAt(new Date());
-                locations.add(info);
-            }
-            material.setLocations(locations);
         }
         if (request.getSupplier() != null) {
             material.setSupplier(request.getSupplier());

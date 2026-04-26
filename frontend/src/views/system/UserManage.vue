@@ -186,6 +186,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Lock, View, Hide, Plus } from '@element-plus/icons-vue'
+import { getErrorMessage } from '../../utils/errorMessage'
 import {
   getUserList,
   createUser,
@@ -377,7 +378,7 @@ async function handleSubmit() {
       dialogVisible.value = false
       fetchUserList()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     } finally {
       submitLoading.value = false
     }
@@ -402,7 +403,7 @@ async function handleRoleSubmit() {
     roleDialogVisible.value = false
     fetchUserList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '分配角色失败')
+    ElMessage.error(getErrorMessage(error, '分配角色失败'))
   } finally {
     submitLoading.value = false
   }
@@ -422,7 +423,7 @@ async function handleToggleStatus(row) {
     fetchUserList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     }
   }
 }
@@ -439,7 +440,7 @@ async function handleDelete(row) {
     fetchUserList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(error, '删除失败'))
     }
   }
 }

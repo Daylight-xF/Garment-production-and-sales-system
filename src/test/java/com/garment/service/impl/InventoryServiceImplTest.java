@@ -99,42 +99,72 @@ class InventoryServiceImplTest {
     }
 
     @Test
-    void createRawMaterialShouldRejectBlankLocation() {
+    void createRawMaterialShouldDefaultMissingQuantityAndBlankLocationToZeroStock() {
         RawMaterialCreateRequest request = new RawMaterialCreateRequest();
         request.setName("Cotton");
         request.setCategory("Fabric");
-        request.setQuantity(10);
         request.setLocation(" ");
 
-        assertThatThrownBy(() -> inventoryService.createRawMaterial(request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("存放位置");
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+        inventoryService.createRawMaterial(request);
+
+        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
+        verify(rawMaterialRepository).save(materialCaptor.capture());
+
+        RawMaterial saved = materialCaptor.getValue();
+        assertThat(saved.getQuantity()).isEqualTo(0);
+        assertThat(saved.getLocations()).isEmpty();
     }
 
     @Test
-    void createRawMaterialShouldRejectMissingOrZeroQuantity() {
-        RawMaterialCreateRequest missingQuantity = new RawMaterialCreateRequest();
-        missingQuantity.setName("Cotton");
-        missingQuantity.setCategory("Fabric");
-        missingQuantity.setLocation("A-01");
+    void createRawMaterialShouldAllowZeroQuantityWithoutCreatingLocationStock() {
+        RawMaterialCreateRequest request = new RawMaterialCreateRequest();
+        request.setName("Cotton");
+        request.setCategory("Fabric");
+        request.setQuantity(0);
+        request.setLocation("A-01");
 
-        assertThatThrownBy(() -> inventoryService.createRawMaterial(missingQuantity))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("库存数量");
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        RawMaterialCreateRequest zeroQuantity = new RawMaterialCreateRequest();
-        zeroQuantity.setName("Cotton");
-        zeroQuantity.setCategory("Fabric");
-        zeroQuantity.setQuantity(0);
-        zeroQuantity.setLocation("A-01");
+        inventoryService.createRawMaterial(request);
 
-        assertThatThrownBy(() -> inventoryService.createRawMaterial(zeroQuantity))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("库存数量");
+        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
+        verify(rawMaterialRepository).save(materialCaptor.capture());
 
-        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+        RawMaterial saved = materialCaptor.getValue();
+        assertThat(saved.getQuantity()).isEqualTo(0);
+        assertThat(saved.getLocations()).isEmpty();
+    }
+
+    @Test
+    void updateRawMaterialShouldNotResetLocationQuantitiesFromHiddenLocationField() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-move-edit");
+        material.setName("Cotton");
+        material.setQuantity(100);
+        material.setLocations(new ArrayList<>(Arrays.asList(
+                new LocationInfo("H-01", 90, new Date(1000L)),
+                new LocationInfo("gg", 10, new Date(2000L))
+        )));
+
+        com.garment.dto.RawMaterialUpdateRequest request = new com.garment.dto.RawMaterialUpdateRequest();
+        request.setName("Cotton");
+        request.setLocation("H-01");
+
+        when(rawMaterialRepository.findById("raw-move-edit")).thenReturn(Optional.of(material));
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.updateRawMaterial("raw-move-edit", request);
+
+        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
+        verify(rawMaterialRepository, atLeastOnce()).save(materialCaptor.capture());
+        RawMaterial saved = materialCaptor.getAllValues().get(materialCaptor.getAllValues().size() - 1);
+
+        assertThat(saved.getLocations())
+                .extracting(LocationInfo::getLocation, LocationInfo::getQuantity)
+                .containsExactly(tuple("H-01", 90), tuple("gg", 10));
+        assertThat(saved.getQuantity()).isEqualTo(100);
     }
 
     @Test

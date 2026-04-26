@@ -4,7 +4,6 @@ import lombok.Data;
 
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
 
 @Data
 public class RawMaterialCreateRequest {
@@ -18,13 +17,11 @@ public class RawMaterialCreateRequest {
 
     private String unit;
 
-    @NotNull(message = "库存数量不能为空")
-    @Min(value = 1, message = "库存数量必须大于0")
+    @Min(value = 0, message = "库存数量不能小于0")
     private Integer quantity;
 
     private Integer alertThreshold;
 
-    @NotBlank(message = "存放位置不能为空")
     private String location;
 
     private String supplier;

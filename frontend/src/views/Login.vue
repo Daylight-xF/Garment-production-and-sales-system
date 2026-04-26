@@ -82,6 +82,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '../store/user'
+import { getErrorMessage } from '../utils/errorMessage'
 
 const router = useRouter()
 const route = useRoute()
@@ -115,14 +116,8 @@ const handleLogin = async () => {
       const redirect = route.query.redirect || '/'
       router.push(redirect)
     } catch (error) {
-      const errorMsg = error.message || error.response?.data?.message || ''
-      if (errorMsg.includes('未激活')) {
-        ElMessage.error('账户未激活，请联系管理员！')
-      } else if (errorMsg.includes('用户名或密码')) {
-        ElMessage.error('用户名或密码不对')
-      } else {
-        ElMessage.error(errorMsg || '登录失败，请检查用户名和密码')
-      }
+      const errorMsg = getErrorMessage(error, '登录失败，请检查用户名和密码')
+      ElMessage.error(errorMsg)
     } finally {
       loading.value = false
     }

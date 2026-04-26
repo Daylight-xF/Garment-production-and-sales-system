@@ -1,5 +1,6 @@
 package com.garment.service.impl;
 
+import com.garment.dto.LoginRequest;
 import com.garment.dto.RegisterRequest;
 import com.garment.exception.BusinessException;
 import com.garment.model.Role;
@@ -19,6 +20,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +41,21 @@ class AuthServiceImplTest {
 
     @InjectMocks
     private AuthServiceImpl authService;
+
+    @Test
+    void loginShouldTellUserWhenAccountIsNotRegistered() {
+        LoginRequest request = new LoginRequest();
+        request.setUsername("missing-user");
+        request.setPassword("password");
+
+        when(userRepository.findByUsername("missing-user")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号未注册");
+
+        verify(passwordEncoder, never()).matches(any(), any());
+    }
 
     @Test
     void registerShouldTranslateDuplicateKeyException() {

@@ -65,7 +65,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BusinessException("用户名或密码错误"));
+                .orElseThrow(() -> new BusinessException("账号未注册，请先注册"));
 
         if (user.getStatus() == 0) {
             throw new BusinessException("账号已被禁用");
