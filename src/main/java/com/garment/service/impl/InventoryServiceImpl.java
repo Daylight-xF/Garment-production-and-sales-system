@@ -82,24 +82,29 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public RawMaterialVO createRawMaterial(RawMaterialCreateRequest request) {
+        if (!StringUtils.hasText(request.getLocation())) {
+            throw new BusinessException("存放位置不能为空");
+        }
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new BusinessException("库存数量必须大于0");
+        }
+
         RawMaterial material = new RawMaterial();
         material.setName(request.getName());
         material.setCategory(request.getCategory());
         material.setSpecification(request.getSpecification());
         material.setUnit(request.getUnit());
-        material.setQuantity(request.getQuantity() != null ? request.getQuantity() : 0);
+        material.setQuantity(request.getQuantity());
         material.setAlertThreshold(request.getAlertThreshold() != null ? request.getAlertThreshold() : 0);
         material.setSupplier(request.getSupplier());
 
-        if (StringUtils.hasText(request.getLocation())) {
-            List<LocationInfo> locations = new ArrayList<>();
-            LocationInfo info = new LocationInfo();
-            info.setLocation(request.getLocation());
-            info.setQuantity(material.getQuantity() != null ? material.getQuantity() : 0);
-            info.setCreatedAt(new Date());
-            locations.add(info);
-            material.setLocations(locations);
-        }
+        List<LocationInfo> locations = new ArrayList<>();
+        LocationInfo info = new LocationInfo();
+        info.setLocation(request.getLocation().trim());
+        info.setQuantity(request.getQuantity());
+        info.setCreatedAt(new Date());
+        locations.add(info);
+        material.setLocations(locations);
 
         material.setPrice(request.getPrice());
         material.setDescription(request.getDescription());
@@ -425,7 +430,8 @@ public class InventoryServiceImpl implements InventoryService {
                     .orElseThrow(() -> new BusinessException("原材料不存在"));
 
             String location = extractLocation(request.getReason());
-            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+            boolean hadLocationInventory = material.getLocations() != null && !material.getLocations().isEmpty();
+            if (hadLocationInventory) {
                 if (StringUtils.hasText(location)) {
                     LocationInfo targetLoc = material.getLocations().stream()
                             .filter(l -> location.equals(l.getLocation()))
@@ -458,7 +464,7 @@ public class InventoryServiceImpl implements InventoryService {
                 material.setQuantity(material.getQuantity() - request.getQuantity());
             }
 
-            if (material.getLocations() != null && !material.getLocations().isEmpty()) {
+            if (hadLocationInventory) {
                 recalculateRawMaterialQuantity(material);
                 saveRawMaterialWithLegacyVersionRetry(material);
             }

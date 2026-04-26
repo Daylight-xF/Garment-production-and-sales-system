@@ -3,6 +3,7 @@ package com.garment.service.impl;
 import com.garment.dto.AlertHandleRequest;
 import com.garment.dto.FinishedProductVO;
 import com.garment.dto.InventoryDeductionReceipt;
+import com.garment.dto.RawMaterialCreateRequest;
 import com.garment.dto.StockInOutRequest;
 import com.garment.exception.BusinessException;
 import com.garment.model.FinishedProduct;
@@ -77,6 +78,45 @@ class InventoryServiceImplTest {
 
     @InjectMocks
     private InventoryServiceImpl inventoryService;
+
+    @Test
+    void createRawMaterialShouldRejectBlankLocation() {
+        RawMaterialCreateRequest request = new RawMaterialCreateRequest();
+        request.setName("Cotton");
+        request.setCategory("Fabric");
+        request.setQuantity(10);
+        request.setLocation(" ");
+
+        assertThatThrownBy(() -> inventoryService.createRawMaterial(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("存放位置");
+
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void createRawMaterialShouldRejectMissingOrZeroQuantity() {
+        RawMaterialCreateRequest missingQuantity = new RawMaterialCreateRequest();
+        missingQuantity.setName("Cotton");
+        missingQuantity.setCategory("Fabric");
+        missingQuantity.setLocation("A-01");
+
+        assertThatThrownBy(() -> inventoryService.createRawMaterial(missingQuantity))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存数量");
+
+        RawMaterialCreateRequest zeroQuantity = new RawMaterialCreateRequest();
+        zeroQuantity.setName("Cotton");
+        zeroQuantity.setCategory("Fabric");
+        zeroQuantity.setQuantity(0);
+        zeroQuantity.setLocation("A-01");
+
+        assertThatThrownBy(() -> inventoryService.createRawMaterial(zeroQuantity))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("库存数量");
+
+        verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
 
     @Test
     void stockInShouldCreateNewFinishedProductWhenBatchColorOrSizeDiffers() {
@@ -456,6 +496,42 @@ class InventoryServiceImplTest {
 
         verify(mongoAtomicOpsService).changeRawMaterialQuantity("raw-stock-out", -5, 0);
         verify(rawMaterialRepository, never()).save(any(RawMaterial.class));
+    }
+
+    @Test
+    void stockOutShouldRecalculateRawMaterialToZeroWhenExplicitLocationIsDepleted() {
+        RawMaterial material = new RawMaterial();
+        material.setId("raw-stock-out-last-location");
+        material.setName("Cotton");
+        material.setQuantity(1);
+        material.setLocations(new ArrayList<>(Collections.singletonList(
+                new LocationInfo("G-08", 1, new Date(1000L))
+        )));
+
+        User operator = new User();
+        operator.setId("warehouse-out-location");
+        operator.setRealName("warehouse user");
+
+        StockInOutRequest request = new StockInOutRequest();
+        request.setItemType("RAW_MATERIAL");
+        request.setItemId("raw-stock-out-last-location");
+        request.setQuantity(1);
+        request.setReason("manual stock out | 位置:G-08");
+
+        when(rawMaterialRepository.findById("raw-stock-out-last-location")).thenReturn(Optional.of(material));
+        when(userRepository.findById("warehouse-out-location")).thenReturn(Optional.of(operator));
+        when(rawMaterialRepository.save(any(RawMaterial.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRecordRepository.save(any(InventoryRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        inventoryService.stockOut(request, "warehouse-out-location");
+
+        verify(mongoAtomicOpsService, never()).changeRawMaterialQuantity("raw-stock-out-last-location", -1, 0);
+
+        ArgumentCaptor<RawMaterial> materialCaptor = ArgumentCaptor.forClass(RawMaterial.class);
+        verify(rawMaterialRepository).save(materialCaptor.capture());
+        RawMaterial savedMaterial = materialCaptor.getValue();
+        assertThat(savedMaterial.getQuantity()).isZero();
+        assertThat(savedMaterial.getLocations()).isEmpty();
     }
 
     @Test

@@ -131,13 +131,13 @@
         <el-form-item label="单位" prop="unit">
           <el-input v-model="materialForm.unit" placeholder="请输入单位" />
         </el-form-item>
-        <el-form-item v-if="dialogType === 'add'" label="库存数量" prop="quantity">
-          <el-input-number v-model="materialForm.quantity" :min="0" style="width: 100%" />
+        <el-form-item v-if="dialogType === 'add'" label="库存数量" prop="quantity" :required="dialogType === 'add'">
+          <el-input-number v-model="materialForm.quantity" :min="1" style="width: 100%" />
         </el-form-item>
         <el-form-item v-if="dialogType === 'add'" label="预警阈值" prop="alertThreshold">
           <el-input-number v-model="materialForm.alertThreshold" :min="0" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="存放位置">
+        <el-form-item label="存放位置" prop="location" :required="dialogType === 'add'">
           <el-input
             v-if="dialogType === 'add'"
             v-model="materialForm.location"
@@ -370,7 +370,7 @@ const materialForm = reactive({
   category: '',
   specification: '',
   unit: '',
-  quantity: 0,
+  quantity: 1,
   alertThreshold: 0,
   location: '',
   locations: [],
@@ -427,7 +427,31 @@ const availableTargetLocations = computed(() => {
 })
 
 const materialFormRules = {
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
+  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
+  quantity: [
+    {
+      validator: (rule, value, callback) => {
+        if (dialogType.value === 'add' && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
+          callback(new Error('请输入大于0的库存数量'))
+          return
+        }
+        callback()
+      },
+      trigger: 'change'
+    }
+  ],
+  location: [
+    {
+      validator: (rule, value, callback) => {
+        if (dialogType.value === 'add' && !String(value || '').trim()) {
+          callback(new Error('请输入存放位置'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
+  ]
 }
 
 const stockFormRules = {
@@ -495,7 +519,7 @@ function handleAdd() {
     category: '',
     specification: '',
     unit: '',
-    quantity: 0,
+    quantity: 1,
     alertThreshold: 0,
     location: '',
     locations: [],
