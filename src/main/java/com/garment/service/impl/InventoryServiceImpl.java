@@ -176,6 +176,7 @@ public class InventoryServiceImpl implements InventoryService {
                         || (p.getName() != null && p.getName().contains(keyword)))
                 .filter(p -> !StringUtils.hasText(category) || category.equals(p.getCategory()))
                 .collect(Collectors.toList());
+        sortFinishedProductsByCreateTimeDesc(filtered);
 
         int start = (int) pageable.getOffset();
         int end = Math.min(start + pageable.getPageSize(), filtered.size());
@@ -186,6 +187,23 @@ public class InventoryServiceImpl implements InventoryService {
                 .collect(Collectors.toList());
 
         return new PageImpl<>(voList, pageable, filtered.size());
+    }
+
+    private void sortFinishedProductsByCreateTimeDesc(List<FinishedProduct> products) {
+        products.sort((left, right) -> {
+            Date leftCreateTime = left.getCreateTime();
+            Date rightCreateTime = right.getCreateTime();
+            if (leftCreateTime == null && rightCreateTime == null) {
+                return 0;
+            }
+            if (leftCreateTime == null) {
+                return 1;
+            }
+            if (rightCreateTime == null) {
+                return -1;
+            }
+            return rightCreateTime.compareTo(leftCreateTime);
+        });
     }
 
     @Override

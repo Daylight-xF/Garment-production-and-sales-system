@@ -31,6 +31,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -328,6 +329,27 @@ class InventoryServiceImplTest {
 
         assertThat(result.getContent()).extracting(FinishedProductVO::getBatchNo)
                 .containsExactly("PC-20260415-9710");
+    }
+
+    @Test
+    void getFinishedProductListShouldSortNewestCreatedProductFirst() {
+        FinishedProduct olderProduct = buildFinishedProduct("finished-old", "PC-OLD", "old-shirt", "OLD", "blue", "M");
+        olderProduct.setCreateTime(new Date(1_000L));
+
+        FinishedProduct newerProduct = buildFinishedProduct("finished-new", "PC-NEW", "new-shirt", "NEW", "red", "L");
+        newerProduct.setCreateTime(new Date(2_000L));
+
+        when(finishedProductRepository.findAll()).thenReturn(Arrays.asList(olderProduct, newerProduct));
+        when(productDefinitionRepository.findByProductCode("NEW")).thenReturn(Optional.empty());
+        when(productDefinitionRepository.findByProductCode("OLD")).thenReturn(Optional.empty());
+
+        Page<FinishedProductVO> result = inventoryService.getFinishedProductList(
+                "", "",
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createTime"))
+        );
+
+        assertThat(result.getContent()).extracting(FinishedProductVO::getBatchNo)
+                .containsExactly("PC-NEW", "PC-OLD");
     }
 
     @Test
