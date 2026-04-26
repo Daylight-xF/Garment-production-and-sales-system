@@ -65,4 +65,4 @@ assert.equal(payload.category, '上装')
 assert.equal(payload.location, 'A-01')
 assert.ok(!('productDefinitionId' in payload))
 
-console.log('finishedProductDefinition tests passed')
+console.log('finishedProductDefinition test passed')

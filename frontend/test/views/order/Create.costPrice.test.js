@@ -8,4 +8,4 @@ assert.match(source, /const selectionCostPrice = getSelectionCostPrice\(productL
 assert.match(source, /row\.costPrice = selectionCostPrice/)
 assert.match(source, /row\.costPrice = matched\.costPrice \?\? selectionCostPrice \?\? null/)
 
-console.log('order create cost price tests passed')
+console.log('order create cost price test passed')

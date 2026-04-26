@@ -9,4 +9,4 @@ const source = readFileSync(join(__dirname, '../../../src/views/inventory/RawMat
 assert.match(source, /getErrorMessage/)
 assert.doesNotMatch(source, /error\.response\?\.data\?\.message/)
 
-console.log('RawMaterial error message tests passed')
+console.log('RawMaterial error message test passed')

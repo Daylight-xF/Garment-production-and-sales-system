@@ -5,7 +5,7 @@ const source = readFileSync(new URL('../../../src/views/inventory/FinishedProduc
 
 assert.match(
   source,
-  /onMounted\(\(\) => \{\s*if \(canCreateOrEditProduct\.value\) \{\s*fetchProductDefinitions\(\)\s*\}\s*fetchFinishedProductCategories\(\)\s*fetchList\(\)\s*\}/s
+  /<el-input\s+v-model="productForm\.batchNo"\s+placeholder="请输入批次号"\s+:disabled="dialogType === 'edit'"\s*\/>/
 )
 
-console.log('FinishedProduct permission tests passed')
+console.log('FinishedProduct edit form test passed')

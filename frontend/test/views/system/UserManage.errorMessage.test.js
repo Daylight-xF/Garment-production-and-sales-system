@@ -9,4 +9,4 @@ const source = readFileSync(join(__dirname, '../../../src/views/system/UserManag
 assert.match(source, /getErrorMessage/)
 assert.doesNotMatch(source, /error\.response\?\.data\?\.message/)
 
-console.log('UserManage error message tests passed')
+console.log('UserManage error message test passed')

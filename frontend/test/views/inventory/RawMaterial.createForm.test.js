@@ -17,4 +17,4 @@ assert.match(quantityItem, /:min="0"/)
 assert.doesNotMatch(source, /dialogType\.value === 'add' && \(!Number\.isFinite\(Number\(value\)\) \|\| Number\(value\) <= 0\)/)
 assert.doesNotMatch(source, /dialogType\.value === 'add' && !String\(value \|\| ''\)\.trim\(\)/)
 
-console.log('RawMaterial create form tests passed')
+console.log('RawMaterial create form test passed')

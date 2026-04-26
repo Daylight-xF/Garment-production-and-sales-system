@@ -18,4 +18,4 @@ assert.equal(
 
 assert.equal(getErrorMessage({}, '发货失败'), '发货失败')
 
-console.log('errorMessage tests passed')
+console.log('errorMessage test passed')

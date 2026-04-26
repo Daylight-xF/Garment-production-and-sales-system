@@ -6,4 +6,4 @@ const source = readFileSync(new URL('../../../src/views/order/Create.vue', impor
 assert.match(source, /import \{ getErrorMessage \} from '..\/..\/utils\/errorMessage'/)
 assert.match(source, /ElMessage\.error\(getErrorMessage\(error, '订单创建失败'\)\)/)
 
-console.log('order create error message tests passed')
+console.log('order create error message test passed')
