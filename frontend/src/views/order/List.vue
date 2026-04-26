@@ -137,6 +137,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getOrderList, approveOrder, rejectOrder, cancelOrder, shipOrder, completeOrder } from '../../api/order'
+import { getErrorMessage } from '../../utils/errorMessage'
 import { useUserStore } from '../../store/user'
 
 const router = useRouter()
@@ -253,7 +254,7 @@ async function handleCancel(id) {
     loadData()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.response?.data?.message || '发货失败')
+      ElMessage.error(getErrorMessage(error, '取消失败'))
     }
   }
 }
@@ -268,8 +269,10 @@ async function handleShip(id) {
     await shipOrder(id)
     ElMessage.success('已发货')
     loadData()
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '发货失败'))
+    }
   }
 }
 
@@ -283,8 +286,10 @@ async function handleComplete(id) {
     await completeOrder(id)
     ElMessage.success('订单已完成')
     loadData()
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '完成失败'))
+    }
   }
 }
 

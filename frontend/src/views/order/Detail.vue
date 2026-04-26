@@ -221,6 +221,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Document, ShoppingBag, Clock, Select, Van, CircleCheck, Close, WarningFilled, CircleClose as CircleCloseIcon } from '@element-plus/icons-vue'
 import { getOrderDetail, approveOrder, rejectOrder, cancelOrder, shipOrder, completeOrder } from '../../api/order'
+import { getErrorMessage } from '../../utils/errorMessage'
 import { useUserStore } from '../../store/user'
 
 const route = useRoute()
@@ -324,7 +325,7 @@ async function handleCancel() {
     loadDetail()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(getErrorMessage(error, '操作失败'))
     }
   }
 }
@@ -339,7 +340,10 @@ async function handleShip() {
     await shipOrder(order.value.id)
     ElMessage.success('已发货')
     loadDetail()
-  } catch {
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '发货失败'))
+    }
   }
 }
 
@@ -353,7 +357,10 @@ async function handleComplete() {
     await completeOrder(order.value.id)
     ElMessage.success('订单已完成')
     loadDetail()
-  } catch {
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '完成失败'))
+    }
   }
 }
 
