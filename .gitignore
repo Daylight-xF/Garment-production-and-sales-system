@@ -4,6 +4,7 @@
 target/
 bug/
 .worktrees/
+.claude/
 
 
 # IDE
