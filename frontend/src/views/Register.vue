@@ -511,6 +511,12 @@ const handleRegister = async () => {
 }
 
 @media (max-width: 900px) {
+  .register-container {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 32px 0;
+  }
+
   .register-card {
     width: 94%;
     max-width: 480px;
@@ -534,6 +540,29 @@ const handleRegister = async () => {
   .register-form :deep(.el-col) {
     max-width: 100%;
     width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .register-container {
+    padding: 20px 12px;
+  }
+
+  .register-card {
+    width: 100%;
+    border-radius: 12px;
+  }
+
+  .register-right {
+    padding: 28px 20px;
+  }
+
+  .register-title {
+    font-size: 23px;
+  }
+
+  .register-btn {
+    min-height: 44px;
   }
 }
 </style>

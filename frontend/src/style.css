@@ -17,3 +17,130 @@ a {
   text-decoration: none;
   color: inherit;
 }
+
+img,
+svg,
+canvas {
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #app {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  body {
+    font-size: 16px;
+  }
+
+  .el-card {
+    border-radius: 8px;
+  }
+
+  .el-card__body {
+    padding: 14px;
+  }
+
+  .el-form {
+    width: 100%;
+  }
+
+  .el-form .el-form-item {
+    margin-bottom: 16px;
+  }
+
+  .el-form .el-row {
+    row-gap: 0;
+  }
+
+  .el-form .el-col {
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+
+  .el-form .el-input,
+  .el-form .el-select,
+  .el-form .el-date-editor,
+  .el-form .el-input-number {
+    width: 100%;
+  }
+
+  .el-button {
+    min-height: 40px;
+  }
+
+  .el-table {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .el-table__inner-wrapper {
+    min-width: 680px;
+  }
+
+  .el-table .cell {
+    white-space: nowrap;
+  }
+
+  .el-dialog {
+    width: 92vw !important;
+    max-width: 92vw;
+    margin-top: 6vh !important;
+  }
+
+  .el-dialog__body {
+    max-height: 70vh;
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .el-dialog__footer {
+    padding: 12px 16px 16px;
+  }
+
+  .el-pagination {
+    justify-content: center;
+    gap: 8px;
+    white-space: normal;
+  }
+
+  .el-pagination .el-pagination__total,
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump {
+    display: none;
+  }
+
+  .page-header,
+  .header-section,
+  .filter-section,
+  .search-section,
+  .search-card,
+  .toolbar,
+  .action-bar,
+  .table-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 12px;
+  }
+
+  .page-header .el-button,
+  .header-section .el-button,
+  .filter-section .el-button,
+  .search-section .el-button,
+  .search-card .el-button,
+  .toolbar .el-button,
+  .action-bar .el-button,
+  .table-toolbar .el-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .el-message-box {
+    width: 92vw !important;
+  }
+}

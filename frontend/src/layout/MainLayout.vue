@@ -1,13 +1,17 @@
 <template>
   <el-container class="main-layout">
-    <el-aside :width="isCollapse ? '64px' : '220px'" class="sidebar">
+    <el-aside
+      :width="sidebarWidth"
+      class="sidebar"
+      :class="{ 'mobile-open': mobileSidebarOpen }"
+    >
       <div class="logo-container">
         <img src="../../public/cat.svg" alt="logo" class="logo-img" />
-        <span v-show="!isCollapse" class="logo-text">服装生产销售管理系统</span>
+        <span v-show="!isCollapse || isMobile" class="logo-text">服装生产销售管理系统</span>
       </div>
       <el-menu
         :default-active="activeMenu"
-        :collapse="isCollapse"
+        :collapse="isMobile ? false : isCollapse"
         :collapse-transition="false"
         router
         background-color="#304156"
@@ -104,6 +108,11 @@
         </el-menu-item>
       </el-menu>
     </el-aside>
+    <div
+      v-show="isMobile && mobileSidebarOpen"
+      class="mobile-sidebar-mask"
+      @click="closeMobileSidebar"
+    ></div>
 
     <el-container class="main-container">
       <el-header class="header">
@@ -144,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useUserStore } from '../store/user'
@@ -154,9 +163,13 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const isCollapse = ref(false)
+const isMobile = ref(false)
+const mobileSidebarOpen = ref(false)
+const MOBILE_BREAKPOINT = 768
 
 const activeMenu = computed(() => route.path)
 const currentRoute = computed(() => route)
+const sidebarWidth = computed(() => (isMobile.value ? '220px' : (isCollapse.value ? '64px' : '220px')))
 
 const menuRoleMap = {
   production: ['admin', 'production_manager'],
@@ -187,7 +200,22 @@ function hasInventoryItemPermission(itemKey) {
 }
 
 function toggleCollapse() {
+  if (isMobile.value) {
+    mobileSidebarOpen.value = !mobileSidebarOpen.value
+    return
+  }
   isCollapse.value = !isCollapse.value
+}
+
+function closeMobileSidebar() {
+  mobileSidebarOpen.value = false
+}
+
+function syncMobileState() {
+  isMobile.value = window.innerWidth <= MOBILE_BREAKPOINT
+  if (!isMobile.value) {
+    mobileSidebarOpen.value = false
+  }
 }
 
 async function handleCommand(command) {
@@ -208,11 +236,26 @@ async function handleCommand(command) {
     router.push('/profile')
   }
 }
+
+watch(() => route.path, () => {
+  closeMobileSidebar()
+})
+
+onMounted(() => {
+  syncMobileState()
+  window.addEventListener('resize', syncMobileState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', syncMobileState)
+})
 </script>
 
 <style scoped>
 .main-layout {
   height: 100vh;
+  width: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -257,6 +300,7 @@ async function handleCommand(command) {
 .main-container {
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 .header {
@@ -273,12 +317,14 @@ async function handleCommand(command) {
   display: flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
 }
 
 .collapse-btn {
   font-size: 20px;
   cursor: pointer;
   color: #333;
+  flex-shrink: 0;
 }
 
 .collapse-btn:hover {
@@ -313,5 +359,60 @@ async function handleCommand(command) {
 .main-content {
   background: #f0f2f5;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+.mobile-sidebar-mask {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1001;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(15, 23, 42, 0.45);
+  }
+
+  .header {
+    height: 56px;
+    padding: 0 12px;
+  }
+
+  .header-left {
+    gap: 10px;
+  }
+
+  .header :deep(.el-breadcrumb) {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .username {
+    max-width: 88px;
+  }
+
+  .main-content {
+    padding: 12px;
+  }
 }
 </style>

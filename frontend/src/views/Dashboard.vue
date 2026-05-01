@@ -765,4 +765,101 @@ onUnmounted(() => {
   color: #888;
   line-height: 1.5;
 }
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 0;
+    min-height: auto;
+  }
+
+  .welcome-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 20px;
+    border-radius: 10px;
+  }
+
+  .welcome-content h2 {
+    font-size: 21px;
+    line-height: 1.35;
+  }
+
+  .welcome-time {
+    width: 100%;
+    text-align: left;
+  }
+
+  .current-time {
+    font-size: 28px;
+  }
+
+  .stat-row {
+    margin-bottom: 8px;
+  }
+
+  .stat-row :deep(.el-col),
+  .content-row :deep(.el-col) {
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+
+  .stat-card :deep(.el-card__body) {
+    padding: 18px;
+  }
+
+  .stat-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+  }
+
+  .stat-info {
+    margin-left: 14px;
+  }
+
+  .stat-number {
+    font-size: 23px;
+  }
+
+  .quick-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .recent-item,
+  .alert-mini {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .recent-item {
+    flex-direction: column;
+  }
+
+  .recent-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-section {
+    padding: 16px;
+  }
+
+  .current-time {
+    font-size: 24px;
+  }
+
+  .quick-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notice-item,
+  .tip-item {
+    gap: 12px;
+  }
+}
 </style>

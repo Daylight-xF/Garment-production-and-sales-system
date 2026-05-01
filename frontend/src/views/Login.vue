@@ -431,6 +431,12 @@ const handleLogin = async () => {
 }
 
 @media (max-width: 768px) {
+  .login-container {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 32px 0;
+  }
+
   .login-card {
     width: 92%;
     max-width: 420px;
@@ -444,6 +450,29 @@ const handleLogin = async () => {
 
   .login-right {
     padding: 36px 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: 20px 12px;
+  }
+
+  .login-card {
+    width: 100%;
+    border-radius: 12px;
+  }
+
+  .login-right {
+    padding: 28px 20px;
+  }
+
+  .login-title {
+    font-size: 23px;
+  }
+
+  .login-btn {
+    min-height: 44px;
   }
 }
 </style>
