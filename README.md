@@ -11,6 +11,7 @@
 - 销售管理：销售记录、客户资料、销售报表、产品排行和类别分布统计。
 - 数据统计：生产、库存、销售等核心指标的可视化统计分析。
 - 产品定义：统一维护产品名称、分类、颜色、尺码、成本价等基础资料。
+- 移动端适配：后台主布局支持移动端抽屉式侧边栏，表格、表单、弹窗和分页在小屏下保持可操作。
 
 ## 技术栈
 
@@ -94,7 +95,7 @@ spring:
       auto-index-creation: true
 ```
 
-默认后端端口为 `8088`，默认 MongoDB 数据库为 `garment_db`。前端开发服务器默认运行在 `5173`，并通过 Vite 代理把 `/api` 请求转发到 `http://localhost:8088`。
+默认后端端口为 `8088`，默认 MongoDB 数据库为 `garment_db`。前端开发服务器默认运行在 `5173`，并通过 Vite 代理把 `/api` 请求转发到 `http://localhost:8088`。前端请求默认使用 `/api`，也可以通过 `VITE_API_BASE_URL` 覆盖 Axios 请求基地址。
 
 ## 快速启动
 
@@ -178,6 +179,9 @@ npm run dev
 # 构建生产包
 npm run build
 
+# 运行前端源码级测试
+Get-ChildItem -Recurse -File test -Filter *.test.js | ForEach-Object { node $_.FullName }
+
 # 本地预览构建结果
 npm run preview
 ```
@@ -213,6 +217,7 @@ npm run preview
 - `/inventory/pending-stock-in`：待入库
 - `/order/list`：订单列表
 - `/order/create`：创建订单
+- `/order/detail/:id`：订单详情
 - `/sales/record`：销售记录
 - `/sales/report`：销售报表
 - `/sales/customer`：客户管理
@@ -226,6 +231,7 @@ npm run preview
 - 后端响应统一使用 `Result<T>` 包装，成功响应默认 `code` 为 `200`。
 - 前端请求封装在 `frontend/src/utils/request.js`，会自动携带本地保存的 JWT。
 - 前端默认 API 地址为 `/api`，开发环境由 Vite 代理到后端 `8088` 端口。
+- 前端移动端适配主要由 `frontend/src/layout/MainLayout.vue` 和 `frontend/src/style.css` 提供，覆盖侧边栏、表格、表单、弹窗、分页等后台高频组件。
 - 后端接口默认需要认证，只有登录和注册接口允许匿名访问。
 - 角色与默认管理员账号由 `DataInitializer` 在应用启动时自动初始化。
 

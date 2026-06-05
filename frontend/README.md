@@ -1,6 +1,6 @@
 # 服装生产销售管理系统前端
 
-这是服装生产销售管理系统的前端项目，基于 Vue 3、Vite、Pinia、Vue Router、Element Plus、Axios 和 ECharts 构建。
+这是服装生产销售管理系统的前端项目，基于 Vue 3、Vite、Pinia、Vue Router、Element Plus、Axios 和 ECharts 构建。后台页面已做移动端适配，支持小屏抽屉式侧边栏、表格横向滚动、表单单列、弹窗自适应和分页精简。
 
 ## 开发环境
 
@@ -30,6 +30,9 @@ npm run dev
 # 类型检查并构建生产包
 npm run build
 
+# 运行源码级测试
+Get-ChildItem -Recurse -File test -Filter *.test.js | ForEach-Object { node $_.FullName }
+
 # 本地预览生产构建结果
 npm run preview
 ```
@@ -42,7 +45,7 @@ npm run preview
 http://localhost:8088
 ```
 
-如果需要连接其他后端地址，可以在环境变量中配置 `VITE_API_BASE_URL`。
+请求封装位于 `src/utils/request.js`，默认使用 `/api`。如果需要连接其他后端地址，可以在环境变量中配置 `VITE_API_BASE_URL` 覆盖请求基地址。
 
 ## 目录说明
 
@@ -54,6 +57,10 @@ src/
 ├── store/        # Pinia 用户状态
 ├── utils/        # 请求、表单和业务辅助函数
 └── views/        # 页面模块
+test/
+├── layout/       # 布局与响应式源码级测试
+├── utils/        # 工具函数测试
+└── views/        # 页面业务约束测试
 ```
 
 ## 页面模块
@@ -66,3 +73,9 @@ src/
 - 销售记录、销售报表、客户管理
 - 数据统计
 - 用户管理、产品定义、个人信息
+
+## 移动端适配
+
+- `src/layout/MainLayout.vue`：小屏下侧边栏改为遮罩抽屉，路由切换后自动收起。
+- `src/style.css`：统一处理 Element Plus 表格、表单、弹窗、分页、工具栏等组件的小屏表现。
+- `src/views/Dashboard.vue`、`src/views/Login.vue`、`src/views/Register.vue`：针对首页、登录和注册首屏补充小屏断点。
