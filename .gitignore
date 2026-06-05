@@ -5,6 +5,7 @@ target/
 bug/
 .worktrees/
 .claude/
+.codex-review/
 
 
 # IDE
