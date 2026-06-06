@@ -22,11 +22,17 @@ public interface UserService {
 
     UserVO updateUser(String id, UserUpdateRequest request);
 
+    UserVO updateUser(String id, UserUpdateRequest request, String operatorUserId);
+
     void deleteUser(String id);
 
     UserVO assignRoles(String id, RoleAssignRequest request);
 
+    UserVO assignRoles(String id, RoleAssignRequest request, String operatorUserId);
+
     UserVO updateUserStatus(String id, Integer status);
+
+    UserVO updateUserStatus(String id, Integer status, String operatorUserId);
 
     UserVO getCurrentUser(String userId);
 

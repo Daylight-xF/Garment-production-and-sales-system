@@ -169,9 +169,12 @@ public class UserController {
          */
         @PutMapping("/{id}")
         @PreAuthorize("hasAuthority('USER_UPDATE')")
-        public Result<UserVO> updateUser(@PathVariable String id, @RequestBody UserUpdateRequest request) {
+        public Result<UserVO> updateUser(@PathVariable String id,
+                                         @RequestBody UserUpdateRequest request,
+                                         Authentication authentication) {
             // 调用业务服务处理请求。
-            UserVO userVO = userService.updateUser(id, request);
+            String operatorUserId = (String) authentication.getPrincipal();
+            UserVO userVO = userService.updateUser(id, request, operatorUserId);
             // 返回统一成功响应。
             return Result.success(userVO);
         }
@@ -208,15 +211,18 @@ public class UserController {
          */
         @PutMapping("/{id}/roles")
         @PreAuthorize("hasAuthority('ROLE_ASSIGN')")
-        public Result<UserVO> assignRoles(@PathVariable String id, @Valid @RequestBody RoleAssignRequest request) {
+        public Result<UserVO> assignRoles(@PathVariable String id,
+                                          @Valid @RequestBody RoleAssignRequest request,
+                                          Authentication authentication) {
             // 调用业务服务处理请求。
-            UserVO userVO = userService.assignRoles(id, request);
+            String operatorUserId = (String) authentication.getPrincipal();
+            UserVO userVO = userService.assignRoles(id, request, operatorUserId);
             // 返回统一成功响应。
             return Result.success(userVO);
         }
 
 
-        /**
+                /**
          * 更新用户状态
          * <p>
          * 接收接口请求参数，调用对应业务服务完成处理，并返回统一响应结果。
@@ -224,18 +230,23 @@ public class UserController {
          *
          * @param id 用户ID
          * @param body 请求体，包含用户状态值
+         * @param authentication 认证信息，用于获取当前操作者用户ID
          * @return 统一响应结果，包含更新状态后的用户信息
          */
         @PutMapping("/{id}/status")
         @PreAuthorize("hasAuthority('USER_UPDATE')")
-        public Result<UserVO> updateUserStatus(@PathVariable String id, @RequestBody Map<String, Integer> body) {
+        public Result<UserVO> updateUserStatus(@PathVariable String id,
+                                               @RequestBody Map<String, Integer> body,
+                                               Authentication authentication) {
             // 从请求体中读取业务参数。
             Integer status = body.get("status");
             // 调用业务服务处理请求。
-            UserVO userVO = userService.updateUserStatus(id, status);
+            String operatorUserId = (String) authentication.getPrincipal();
+            UserVO userVO = userService.updateUserStatus(id, status, operatorUserId);
             // 返回统一成功响应。
             return Result.success(userVO);
         }
+
 
 
         /**

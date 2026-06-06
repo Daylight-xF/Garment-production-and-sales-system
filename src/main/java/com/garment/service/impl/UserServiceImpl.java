@@ -235,8 +235,16 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public UserVO updateUser(String id, UserUpdateRequest request) {
+        return updateUser(id, request, null);
+    }
+
+    @Override
+    public UserVO updateUser(String id, UserUpdateRequest request, String operatorUserId) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
+
+        // 检查是否为内置管理员，内置管理员不允许被操作
+        assertCanOperateBuiltInAdmin(user, operatorUserId);
 
         // 选择性更新用户字段，只更新请求中提供的非空字段
         if (request.getRealName() != null) {
@@ -272,9 +280,11 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public void deleteUser(String id) {
-        // 校验用户是否存在
-        if (!userRepository.existsById(id)) {
-            throw new BusinessException("用户不存在");
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("用户不存在"));
+
+        if ("admin".equals(user.getUsername())) {
+            throw new BusinessException("admin账户为系统内置账户，无法删除");
         }
         
         // 从数据库中删除用户
@@ -297,8 +307,33 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public UserVO assignRoles(String id, RoleAssignRequest request) {
+        return assignRoles(id, request, null);
+    }
+
+    /**
+     * 为用户分配角色（含操作者权限校验）
+     * <p>
+     * 该重载方法在角色分配的基础上增加了操作者身份校验，
+     * 确保非admin用户无法操作内置管理员账户。
+     * 主要功能包括：
+     * 1. 校验目标用户是否存在
+     * 2. 校验操作者对内置管理员账户的操作权限
+     * 3. 校验所有待分配的角色是否存在
+     * 4. 更新用户的角色列表并持久化
+     * </p>
+     *
+     * @param id 目标用户的唯一标识符
+     * @param request 角色分配请求对象，包含待分配的角色ID列表
+     * @param operatorUserId 操作者的用户ID，用于内置管理员操作权限校验
+     * @return 更新后的用户视图对象，包含最新的角色信息
+     */
+    @Override
+    public UserVO assignRoles(String id, RoleAssignRequest request, String operatorUserId) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
+
+        // 内置管理员账户不允许被操作
+        assertCanOperateBuiltInAdmin(user, operatorUserId);
 
         // 校验所有待分配的角色是否存在
         for (String roleId : request.getRoleIds()) {
@@ -326,8 +361,14 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public UserVO updateUserStatus(String id, Integer status) {
+        return updateUserStatus(id, status, null);
+    }
+
+    @Override
+    public UserVO updateUserStatus(String id, Integer status, String operatorUserId) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
+        assertCanOperateBuiltInAdmin(user, operatorUserId);
 
         // 更新用户状态并保存
         user.setStatus(status);
@@ -447,4 +488,39 @@ public class UserServiceImpl implements UserService {
                 .updateTime(updateTime)
                 .build();
     }
+
+    /**
+     * 校验操作者对内置管理员账户的操作权限
+     * <p>
+     * 仅允许admin账户操作admin账户，防止普通用户越权修改内置管理员。
+     * 校验规则：
+     * 1. 目标用户非admin → 直接放行，无需额外校验
+     * 2. 目标用户为admin且操作者为其本人 → 放行（admin自操作）
+     * 3. 目标用户为admin且操作者为其他admin → 放行
+     * 4. 其他情况 → 抛出业务异常
+     * </p>
+     *
+     * @param targetUser 操作的目标用户实体
+     * @param operatorUserId 操作者的用户ID，可能为{@code null}
+     */
+    private void assertCanOperateBuiltInAdmin(User targetUser, String operatorUserId) {
+        // 目标用户非admin，无需校验
+        if (!"admin".equals(targetUser.getUsername())) {
+            return;
+        }
+
+        // admin账户自操作，允许
+        if (targetUser.getId() != null && targetUser.getId().equals(operatorUserId)) {
+            return;
+        }
+
+        // 查询操作者身份，非admin则拒绝操作
+        User operator = StringUtils.hasText(operatorUserId)
+                ? userRepository.findById(operatorUserId).orElse(null)
+                : null;
+        if (operator == null || !"admin".equals(operator.getUsername())) {
+            throw new BusinessException("只有admin账号可以操作admin账户");
+        }
+    }
+
 }

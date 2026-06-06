@@ -2,7 +2,9 @@ package com.garment.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.garment.dto.RoleAssignRequest;
 import com.garment.dto.UserCreateRequest;
+import com.garment.dto.UserUpdateRequest;
 import com.garment.exception.BusinessException;
 import com.garment.dto.UserVO;
 import com.garment.model.Role;
@@ -24,6 +26,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -87,5 +91,101 @@ class UserServiceImplTest {
         assertThatThrownBy(() -> userService.createUser(request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("用户名已存在");
+    }
+
+    @Test
+    void deleteUserShouldRejectBuiltInAdminAccount() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> userService.deleteUser("admin-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("admin账户为系统内置账户，无法删除");
+
+        verify(userRepository, never()).deleteById("admin-id");
+    }
+
+    @Test
+    void updateUserShouldRejectAdminTargetWhenOperatorIsAnotherAdminUser() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        User otherAdmin = new User();
+        otherAdmin.setId("manager-id");
+        otherAdmin.setUsername("guanliyuan");
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+        when(userRepository.findById("manager-id")).thenReturn(Optional.of(otherAdmin));
+
+        assertThatThrownBy(() -> userService.updateUser("admin-id", new UserUpdateRequest(), "manager-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只有admin账号可以操作admin账户");
+
+        verify(userRepository, never()).save(admin);
+    }
+
+    @Test
+    void updateUserShouldAllowBuiltInAdminAccountToOperateItself() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setRealName("系统管理员");
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+        when(userRepository.save(admin)).thenReturn(admin);
+
+        UserVO result = userService.updateUser("admin-id", request, "admin-id");
+
+        assertThat(result.getRealName()).isEqualTo("系统管理员");
+        verify(userRepository).save(admin);
+    }
+
+    @Test
+    void assignRolesShouldRejectAdminTargetWhenOperatorIsAnotherAdminUser() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        User otherAdmin = new User();
+        otherAdmin.setId("manager-id");
+        otherAdmin.setUsername("guanliyuan");
+
+        RoleAssignRequest request = new RoleAssignRequest();
+        request.setRoleIds(Collections.singletonList("role-admin"));
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+        when(userRepository.findById("manager-id")).thenReturn(Optional.of(otherAdmin));
+
+        assertThatThrownBy(() -> userService.assignRoles("admin-id", request, "manager-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只有admin账号可以操作admin账户");
+
+        verify(userRepository, never()).save(admin);
+    }
+
+    @Test
+    void updateUserStatusShouldRejectAdminTargetWhenOperatorIsAnotherAdminUser() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        User otherAdmin = new User();
+        otherAdmin.setId("manager-id");
+        otherAdmin.setUsername("guanliyuan");
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+        when(userRepository.findById("manager-id")).thenReturn(Optional.of(otherAdmin));
+
+        assertThatThrownBy(() -> userService.updateUserStatus("admin-id", 0, "manager-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只有admin账号可以操作admin账户");
+
+        verify(userRepository, never()).save(admin);
     }
 }

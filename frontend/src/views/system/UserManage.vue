@@ -73,17 +73,46 @@
         </el-table-column>
         <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button type="warning" link size="small" @click="handleAssignRole(row)">分配角色</el-button>
+            <el-button
+              type="primary"
+              link
+              size="small"
+              :disabled="!canOperateBuiltInAdmin(row)"
+              :title="canOperateBuiltInAdmin(row) ? '' : ADMIN_OPERATE_TIP"
+              @click="handleProtectedAdminAction(row, handleEdit)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              type="warning"
+              link
+              size="small"
+              :disabled="!canOperateBuiltInAdmin(row)"
+              :title="canOperateBuiltInAdmin(row) ? '' : ADMIN_OPERATE_TIP"
+              @click="handleProtectedAdminAction(row, handleAssignRole)"
+            >
+              分配角色
+            </el-button>
             <el-button
               :type="row.status === 1 ? 'danger' : 'success'"
               link
               size="small"
-              @click="handleToggleStatus(row)"
+              :disabled="!canOperateBuiltInAdmin(row)"
+              :title="canOperateBuiltInAdmin(row) ? '' : ADMIN_OPERATE_TIP"
+              @click="handleProtectedAdminAction(row, handleToggleStatus)"
             >
               {{ row.status === 1 ? '禁用' : '启用' }}
             </el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button
+              type="danger"
+              link
+              size="small"
+              :disabled="isBuiltInAdmin(row)"
+              :title="isBuiltInAdmin(row) ? ADMIN_DELETE_TIP : ''"
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -186,6 +215,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Lock, View, Hide, Plus } from '@element-plus/icons-vue'
+import { useUserStore } from '../../store/user'
 import { getErrorMessage } from '../../utils/errorMessage'
 import {
   getUserList,
@@ -197,6 +227,7 @@ import {
   getRoleList
 } from '../../api/user'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const submitLoading = ref(false)
 const userList = ref([])
@@ -216,6 +247,9 @@ const roleNameMap = {
   sales_staff: '销售人员',
   inactive: '未激活'
 }
+
+const ADMIN_DELETE_TIP = 'admin账户为系统内置账户，无法删除'
+const ADMIN_OPERATE_TIP = '只有admin账号可以操作admin账户'
 
 const searchForm = reactive({
   username: '',
@@ -328,6 +362,26 @@ function handleReset() {
   fetchUserList()
 }
 
+function isBuiltInAdmin(row) {
+  return row.username === 'admin'
+}
+
+function isCurrentBuiltInAdmin() {
+  return userStore.username === 'admin'
+}
+
+function canOperateBuiltInAdmin(row) {
+  return !isBuiltInAdmin(row) || isCurrentBuiltInAdmin()
+}
+
+function handleProtectedAdminAction(row, action) {
+  if (!canOperateBuiltInAdmin(row)) {
+    ElMessage.warning(ADMIN_OPERATE_TIP)
+    return
+  }
+  action(row)
+}
+
 function handleAdd() {
   dialogType.value = 'add'
   showNewPassword.value = false
@@ -429,6 +483,11 @@ async function handleToggleStatus(row) {
 }
 
 async function handleDelete(row) {
+  if (isBuiltInAdmin(row)) {
+    ElMessage.warning(ADMIN_DELETE_TIP)
+    return
+  }
+
   try {
     await ElMessageBox.confirm(`确定删除用户"${row.username}"吗？此操作不可恢复。`, '警告', {
       confirmButtonText: '确定',

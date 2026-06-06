@@ -8,5 +8,15 @@ const source = readFileSync(join(__dirname, '../../../src/views/system/UserManag
 
 assert.match(source, /getErrorMessage/)
 assert.doesNotMatch(source, /error\.response\?\.data\?\.message/)
+assert.match(source, /admin账户为系统内置账户，无法删除/)
+assert.match(source, /row\.username === 'admin'/)
+assert.match(source, /useUserStore/)
+assert.match(source, /ADMIN_OPERATE_TIP/)
+assert.match(source, /canOperateBuiltInAdmin/)
+assert.match(source, /userStore\.username === 'admin'/)
+assert.match(source, /canOperateBuiltInAdmin\(row\) \? '' : ADMIN_OPERATE_TIP/)
+assert.match(source, /handleProtectedAdminAction\(row, handleEdit\)/)
+assert.match(source, /handleProtectedAdminAction\(row, handleAssignRole\)/)
+assert.match(source, /handleProtectedAdminAction\(row, handleToggleStatus\)/)
 
 console.log('UserManage error message test passed')
