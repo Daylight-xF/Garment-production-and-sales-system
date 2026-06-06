@@ -192,6 +192,11 @@
               />
             </template>
           </el-table-column>
+          <el-table-column label="单位" width="80" align="center">
+            <template #default="{ row }">
+              {{ row.unit || '-' }}
+            </template>
+          </el-table-column>
           <el-table-column label="单价" width="120" align="center">
             <template #default="{ row }">
               <span class="cost-chip cost-chip--price">
@@ -206,11 +211,7 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="单位" width="80" align="center">
-            <template #default="{ row }">
-              {{ row.unit || '-' }}
-            </template>
-          </el-table-column>
+
           <el-table-column label="操作" width="80" align="center">
             <template #default="{ $index }">
               <el-button type="danger" link size="small" @click="removeMaterial($index)">
