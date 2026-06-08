@@ -11,5 +11,9 @@ export default defineConfig({
         changeOrigin: true
       }
     }
-  }
+  },
+    // 生产环境配置
+    build: {
+      outDir: 'dist'
+    }
 })

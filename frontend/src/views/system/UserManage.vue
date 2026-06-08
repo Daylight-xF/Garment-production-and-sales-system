@@ -320,7 +320,7 @@ async function fetchUserList() {
   try {
     const params = {
       page: pagination.page,
-      pageSize: pagination.pageSize,
+      size: pagination.pageSize,
       keyword: searchForm.username
     }
     if (searchForm.role) {
