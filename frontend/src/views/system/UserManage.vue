@@ -163,10 +163,9 @@
         <el-form-item v-if="dialogType === 'edit'" label="新密码" prop="newPassword">
           <el-input
             v-model="userForm.newPassword"
-            :type="showNewPassword ? 'text' : 'password'"
+            type="password"
             placeholder="留空则不修改密码"
-            :suffix-icon="showNewPassword ? View : Hide"
-            @click:icon="showNewPassword = !showNewPassword"
+            show-password
           >
             <template #prefix>
               <el-icon><Lock /></el-icon>
@@ -214,7 +213,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lock, View, Hide, Plus } from '@element-plus/icons-vue'
+import { Lock, Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '../../store/user'
 import { getErrorMessage } from '../../utils/errorMessage'
 import {
@@ -238,7 +237,6 @@ const dialogType = ref('add')
 const currentUserId = ref(null)
 const selectedRoleId = ref('')
 const userFormRef = ref(null)
-const showNewPassword = ref(false)
 
 const roleNameMap = {
   admin: '系统管理员',
@@ -397,7 +395,6 @@ function handleProtectedRoleStatusAction(row, action) {
 
 function handleAdd() {
   dialogType.value = 'add'
-  showNewPassword.value = false
   Object.assign(userForm, {
     username: '',
     realName: '',
@@ -412,7 +409,6 @@ function handleAdd() {
 function handleEdit(row) {
   dialogType.value = 'edit'
   currentUserId.value = row.id
-  showNewPassword.value = false
   Object.assign(userForm, {
     username: row.username,
     realName: row.realName,
