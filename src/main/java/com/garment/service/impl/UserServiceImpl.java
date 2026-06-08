@@ -332,8 +332,7 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
 
-        // 内置管理员账户不允许被操作
-        assertCanOperateBuiltInAdmin(user, operatorUserId);
+        assertCanChangeBuiltInAdminRoleOrStatus(user);
 
         // 校验所有待分配的角色是否存在
         for (String roleId : request.getRoleIds()) {
@@ -368,7 +367,7 @@ public class UserServiceImpl implements UserService {
     public UserVO updateUserStatus(String id, Integer status, String operatorUserId) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
-        assertCanOperateBuiltInAdmin(user, operatorUserId);
+        assertCanChangeBuiltInAdminRoleOrStatus(user);
 
         // 更新用户状态并保存
         user.setStatus(status);
@@ -520,6 +519,12 @@ public class UserServiceImpl implements UserService {
                 : null;
         if (operator == null || !"admin".equals(operator.getUsername())) {
             throw new BusinessException("只有admin账号可以操作admin账户");
+        }
+    }
+
+    private void assertCanChangeBuiltInAdminRoleOrStatus(User targetUser) {
+        if ("admin".equals(targetUser.getUsername())) {
+            throw new BusinessException("admin账户为系统内置账户，无法分配角色或禁用");
         }
     }
 

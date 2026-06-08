@@ -152,19 +152,32 @@ class UserServiceImplTest {
         admin.setId("admin-id");
         admin.setUsername("admin");
 
-        User otherAdmin = new User();
-        otherAdmin.setId("manager-id");
-        otherAdmin.setUsername("guanliyuan");
+        RoleAssignRequest request = new RoleAssignRequest();
+        request.setRoleIds(Collections.singletonList("role-admin"));
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> userService.assignRoles("admin-id", request, "manager-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("admin账户为系统内置账户，无法分配角色或禁用");
+
+        verify(userRepository, never()).save(admin);
+    }
+
+    @Test
+    void assignRolesShouldRejectBuiltInAdminAccountEvenWhenOperatorIsAdmin() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
 
         RoleAssignRequest request = new RoleAssignRequest();
         request.setRoleIds(Collections.singletonList("role-admin"));
 
         when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
-        when(userRepository.findById("manager-id")).thenReturn(Optional.of(otherAdmin));
 
-        assertThatThrownBy(() -> userService.assignRoles("admin-id", request, "manager-id"))
+        assertThatThrownBy(() -> userService.assignRoles("admin-id", request, "admin-id"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("只有admin账号可以操作admin账户");
+                .hasMessageContaining("admin账户为系统内置账户，无法分配角色或禁用");
 
         verify(userRepository, never()).save(admin);
     }
@@ -175,16 +188,26 @@ class UserServiceImplTest {
         admin.setId("admin-id");
         admin.setUsername("admin");
 
-        User otherAdmin = new User();
-        otherAdmin.setId("manager-id");
-        otherAdmin.setUsername("guanliyuan");
-
         when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
-        when(userRepository.findById("manager-id")).thenReturn(Optional.of(otherAdmin));
 
         assertThatThrownBy(() -> userService.updateUserStatus("admin-id", 0, "manager-id"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("只有admin账号可以操作admin账户");
+                .hasMessageContaining("admin账户为系统内置账户，无法分配角色或禁用");
+
+        verify(userRepository, never()).save(admin);
+    }
+
+    @Test
+    void updateUserStatusShouldRejectBuiltInAdminAccountEvenWhenOperatorIsAdmin() {
+        User admin = new User();
+        admin.setId("admin-id");
+        admin.setUsername("admin");
+
+        when(userRepository.findById("admin-id")).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> userService.updateUserStatus("admin-id", 0, "admin-id"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("admin账户为系统内置账户，无法分配角色或禁用");
 
         verify(userRepository, never()).save(admin);
     }

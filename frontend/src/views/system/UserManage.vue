@@ -87,9 +87,9 @@
               type="warning"
               link
               size="small"
-              :disabled="!canOperateBuiltInAdmin(row)"
-              :title="canOperateBuiltInAdmin(row) ? '' : ADMIN_OPERATE_TIP"
-              @click="handleProtectedAdminAction(row, handleAssignRole)"
+              :disabled="!canChangeBuiltInAdminRoleOrStatus(row)"
+              :title="canChangeBuiltInAdminRoleOrStatus(row) ? '' : ADMIN_ROLE_STATUS_TIP"
+              @click="handleProtectedRoleStatusAction(row, handleAssignRole)"
             >
               分配角色
             </el-button>
@@ -97,9 +97,9 @@
               :type="row.status === 1 ? 'danger' : 'success'"
               link
               size="small"
-              :disabled="!canOperateBuiltInAdmin(row)"
-              :title="canOperateBuiltInAdmin(row) ? '' : ADMIN_OPERATE_TIP"
-              @click="handleProtectedAdminAction(row, handleToggleStatus)"
+              :disabled="!canChangeBuiltInAdminRoleOrStatus(row)"
+              :title="canChangeBuiltInAdminRoleOrStatus(row) ? '' : ADMIN_ROLE_STATUS_TIP"
+              @click="handleProtectedRoleStatusAction(row, handleToggleStatus)"
             >
               {{ row.status === 1 ? '禁用' : '启用' }}
             </el-button>
@@ -250,6 +250,7 @@ const roleNameMap = {
 
 const ADMIN_DELETE_TIP = 'admin账户为系统内置账户，无法删除'
 const ADMIN_OPERATE_TIP = '只有admin账号可以操作admin账户'
+const ADMIN_ROLE_STATUS_TIP = 'admin账户为系统内置账户，无法分配角色或禁用'
 
 const searchForm = reactive({
   username: '',
@@ -374,9 +375,21 @@ function canOperateBuiltInAdmin(row) {
   return !isBuiltInAdmin(row) || isCurrentBuiltInAdmin()
 }
 
+function canChangeBuiltInAdminRoleOrStatus(row) {
+  return !isBuiltInAdmin(row)
+}
+
 function handleProtectedAdminAction(row, action) {
   if (!canOperateBuiltInAdmin(row)) {
     ElMessage.warning(ADMIN_OPERATE_TIP)
+    return
+  }
+  action(row)
+}
+
+function handleProtectedRoleStatusAction(row, action) {
+  if (!canChangeBuiltInAdminRoleOrStatus(row)) {
+    ElMessage.warning(ADMIN_ROLE_STATUS_TIP)
     return
   }
   action(row)
